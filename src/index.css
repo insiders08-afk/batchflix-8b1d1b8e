@@ -4,8 +4,8 @@
 
 @layer base {
   :root {
-    /* ===== CREAM BASE ===== */
-    --background: 40 45% 94%; /* soft cream */
+    /* ===== CREAM BACKGROUND (FIXED) ===== */
+    --background: 38 35% 96%;
     --foreground: 28 25% 18%;
 
     --card: 0 0% 100%;
@@ -14,23 +14,19 @@
     --popover: 0 0% 100%;
     --popover-foreground: 28 25% 18%;
 
-    /* ===== BROWN SYSTEM ===== */
+    /* ===== WARM BROWN SYSTEM ===== */
     --brown: 28 35% 35%;
-    --brown-light: 30 40% 85%;
     --brown-dark: 25 40% 22%;
 
-    /* ===== MUTED WARM COLORS ===== */
-    --primary: 232 45% 48%; /* warm blue */
-    --primary-glow: 232 50% 60%;
+    /* ===== MUTED COLORS ===== */
+    --primary: 232 55% 50%;
+    --primary-glow: 260 45% 60%;
 
-    --accent: 28 75% 55%; /* warm orange */
-    --success: 145 40% 42%; /* warm green */
-    --danger: 8 65% 55%; /* warm red */
+    --accent: 28 75% 55%;
+    --success: 145 40% 42%;
+    --danger: 8 65% 55%;
 
     --primary-foreground: 0 0% 100%;
-    --accent-foreground: 0 0% 100%;
-    --success-foreground: 0 0% 100%;
-    --danger-foreground: 0 0% 100%;
 
     /* ===== NEUTRALS ===== */
     --secondary: 35 30% 92%;
@@ -39,34 +35,22 @@
     --muted: 35 25% 90%;
     --muted-foreground: 28 12% 45%;
 
-    --border: 30 25% 80%; /* warm brown border */
-    --input: 30 25% 80%;
+    --border: 30 25% 78%;
+    --input: 30 25% 78%;
     --ring: 28 35% 35%;
 
     --radius: 0.9rem;
 
-    /* ===== GRADIENTS (SOFT + WARM) ===== */
-    --gradient-hero: linear-gradient(135deg, hsl(232 45% 48%), hsl(260 35% 60%));
-
-    --gradient-accent: linear-gradient(135deg, hsl(28 75% 55%), hsl(20 70% 58%));
-
-    --gradient-success: linear-gradient(135deg, hsl(145 40% 42%), hsl(135 35% 48%));
-
-    /* ===== SHADOWS (SOFT PREMIUM) ===== */
-    --shadow-sm: 0 2px 4px hsl(30 20% 20% / 0.06);
-    --shadow-md: 0 6px 18px hsl(30 20% 20% / 0.08);
-    --shadow-lg: 0 12px 35px hsl(30 20% 20% / 0.1);
-
-    --shadow-glow: 0 6px 20px hsl(28 35% 35% / 0.25);
+    /* ===== SHADOWS ===== */
+    --shadow-card: 0 8px 25px hsl(30 20% 20% / 0.08);
+    --shadow-glow: 0 6px 18px hsl(232 50% 40% / 0.25);
   }
 
   .dark {
     --background: 25 20% 8%;
     --foreground: 35 20% 92%;
-
     --card: 25 18% 12%;
     --card-foreground: 35 20% 92%;
-
     --border: 25 15% 18%;
     --muted: 25 15% 18%;
     --muted-foreground: 35 10% 65%;
@@ -100,44 +84,60 @@
     font-family: "Bricolage Grotesque", "Inter", sans-serif;
   }
 
-  /* ===== ICON BACKGROUNDS ===== */
-  .icon-bg {
-    @apply rounded-2xl flex items-center justify-center shadow-md;
-    background: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--primary-glow)));
-  }
-
-  /* ===== CARD STYLE ===== */
+  /* ===== CARD ===== */
   .card-warm {
-    @apply bg-card border rounded-xl shadow-md transition-all duration-300;
-    border-color: hsl(var(--border));
+    background: hsl(var(--card));
+    border: 1px solid hsl(var(--border));
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-card);
+    transition: all 0.3s ease;
   }
 
   .card-warm:hover {
     transform: translateY(-4px);
-    box-shadow: var(--shadow-lg);
+    box-shadow: 0 12px 30px hsl(30 20% 20% / 0.12);
   }
 
-  /* ===== BUTTON (YOUR SPECIAL REQUEST 👇) ===== */
+  /* ===== ICON BACKGROUND ===== */
+  .icon-bg {
+    width: 64px;
+    height: 64px;
+    border-radius: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, hsl(232 55% 50%), hsl(260 45% 60%));
+    box-shadow: var(--shadow-glow);
+  }
+
+  /* ===== BUTTON ===== */
   .btn-warm {
-    @apply w-full font-medium text-white rounded-md transition-all duration-300;
-    background: linear-gradient(135deg, hsl(var(--brown)), hsl(var(--brown-dark)));
+    width: 100%;
+    font-weight: 500;
+    color: white;
+    border-radius: 8px;
+    transition: all 0.25s ease;
+
+    background: linear-gradient(135deg, hsl(232 55% 50%), hsl(260 45% 60%));
+
+    border: 1px solid hsl(var(--border));
     box-shadow: var(--shadow-glow);
   }
 
   .btn-warm:hover {
     transform: translateY(-1px);
-    box-shadow: 0 10px 25px hsl(28 35% 35% / 0.35);
+    box-shadow: 0 10px 28px hsl(232 50% 40% / 0.35);
   }
 
   .btn-warm:active {
     background: hsl(var(--brown));
-    box-shadow: inset 0 2px 6px hsl(28 40% 20% / 0.4);
+    box-shadow: inset 0 3px 8px hsl(28 40% 20% / 0.5);
     transform: scale(0.97);
   }
 
   /* ===== TEXT GRADIENT ===== */
   .text-gradient {
-    background: var(--gradient-hero);
+    background: linear-gradient(135deg, hsl(232 55% 50%), hsl(260 45% 60%));
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
   }
