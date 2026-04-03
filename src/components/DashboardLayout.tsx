@@ -209,7 +209,6 @@ export default function DashboardLayout({ children, title, role = "admin" }: Das
         {menuItems.map((item) => {
           const active = isActiveItem(item.path);
           const showApprovalBadge = isAdmin && approvalsPending > 0 && item.path === "/admin/approvals";
-          const showBatchAppBadge = isAdmin && batchAppsPending > 0 && item.path === "/admin/batch-applications";
           return (
             <Link
               key={`${item.path}-${item.label}`}
