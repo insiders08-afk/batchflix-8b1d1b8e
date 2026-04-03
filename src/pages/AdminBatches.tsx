@@ -55,6 +55,7 @@ interface Batch {
   is_active: boolean;
   institute_code: string;
   studentCount: number;
+  enrollment_open: boolean;
 }
 
 interface Teacher {
