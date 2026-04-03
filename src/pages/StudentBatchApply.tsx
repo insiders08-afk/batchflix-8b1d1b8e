@@ -105,7 +105,13 @@ export default function StudentBatchApply() {
     });
 
     if (error) {
-      toast({ title: "Error applying", description: error.message, variant: "destructive" });
+      // Check if this is an enrollment-closed RLS error
+      const msg = error.message?.toLowerCase() || "";
+      if (msg.includes("row-level security") || msg.includes("policy")) {
+        toast({ title: "Enrollment closed", description: "Enrollment for this batch is currently closed by the admin.", variant: "destructive" });
+      } else {
+        toast({ title: "Error applying", description: error.message, variant: "destructive" });
+      }
     } else {
       toast({ title: "Application sent!", description: "Your teacher/admin will review your request." });
       setBatches(prev =>
