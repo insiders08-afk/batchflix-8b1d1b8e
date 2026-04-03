@@ -80,7 +80,6 @@ export default function DashboardLayout({ children, title, role = "admin" }: Das
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [approvalsPending, setApprovalsPending] = useState(0);
-  const [batchAppsPending, setBatchAppsPending] = useState(0);
   const [userName, setUserName] = useState("Loading...");
   const [userInitials, setUserInitials] = useState("...");
   const [instituteName, setInstituteName] = useState("");
