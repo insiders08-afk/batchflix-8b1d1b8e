@@ -103,6 +103,10 @@ export default function BatchWorkspace() {
   const chatEndRef = useRef<HTMLDivElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Track whether we have done the initial scroll-to-bottom after first load
+  const initialScrollDone = useRef(false);
+  // Track pending image loads that may shift layout
+  const pendingImages = useRef(0);
 
   const [batch, setBatch] = useState<BatchInfo | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string>("");
@@ -118,6 +122,7 @@ export default function BatchWorkspace() {
   const [attachedFile, setAttachedFile] = useState<File | null>(null);
   const [uploadingFile, setUploadingFile] = useState(false);
   const [replyingTo, setReplyingTo] = useState<ChatMessage | null>(null);
+  // Default true: until we scroll to bottom for the first time, show the button
   const [showScrollDown, setShowScrollDown] = useState(false);
 
   // Attendance
@@ -193,18 +198,16 @@ export default function BatchWorkspace() {
         .eq("batch_id", batchId);
       setStudentCount(count || 0);
 
-      // Chat messages
+      // Chat messages — fetch oldest-first for chronological display
       const { data: msgs } = await supabase
         .from("batch_messages")
         .select("*")
         .eq("batch_id", batchId)
-        .order("created_at", { ascending: false })
+        .order("created_at", { ascending: true })
         .limit(100);
       if (msgs) {
-        // Reverse to show in chronological order
-        const chronologicalMsgs = [...msgs].reverse();
         setMessages(
-          chronologicalMsgs.map((m) => ({
+          msgs.map((m) => ({
             ...m,
             reactions: (m.reactions ?? {}) as Record<string, string[]>,
             isSelf: m.sender_id === user.id,
@@ -346,30 +349,73 @@ export default function BatchWorkspace() {
     };
   }, [batchId]);
 
-  // Robust Scrolling with ResizeObserver
+  // Core scroll helper
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
+    const container = chatContainerRef.current;
+    if (!container) return;
+    container.scrollTop = container.scrollHeight;
+    // Also check button state after scrolling
+    const distFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+    setShowScrollDown(distFromBottom > 100);
+  }, []);
+
+  // After messages load for the first time, do a hard instant scroll to bottom.
+  // We also set up a ResizeObserver so that if images load and push the height
+  // down, we keep scrolling until stable (only if user hasn't manually scrolled).
   useEffect(() => {
+    if (loading) return;
+    if (messages.length === 0) return;
+
     const container = chatContainerRef.current;
     if (!container) return;
 
-    const observer = new ResizeObserver(() => {
-      // Small buffer to check if we are already near the bottom
-      const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 100;
+    // Instant snap to bottom on initial load
+    if (!initialScrollDone.current) {
+      container.scrollTop = container.scrollHeight;
+      initialScrollDone.current = true;
+      // After snap, check button state
+      const distFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+      setShowScrollDown(distFromBottom > 100);
+    }
 
-      // If we're loading or if we're near the bottom, force scroll
-      if (loading || isNearBottom) {
-        chatEndRef.current?.scrollIntoView({ behavior: "auto" });
+    // ResizeObserver: if content height grows (due to images) AND user is near bottom,
+    // keep scrolling so they stay at the bottom.
+    const observer = new ResizeObserver(() => {
+      const dist = container.scrollHeight - container.scrollTop - container.clientHeight;
+      if (dist < 300) {
+        // User is near bottom — keep them there
+        container.scrollTop = container.scrollHeight;
+        setShowScrollDown(false);
       }
     });
-
     observer.observe(container);
     return () => observer.disconnect();
-  }, [loading]);
+  }, [loading, messages.length]);
 
+  // When a NEW message arrives (realtime), auto-scroll only if already near bottom
+  const prevMsgCount = useRef(0);
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+    const newCount = messages.length;
+    if (!initialScrollDone.current) return; // Don't interfere with initial load
+    if (newCount > prevMsgCount.current) {
+      const container = chatContainerRef.current;
+      if (container) {
+        const dist = container.scrollHeight - container.scrollTop - container.clientHeight;
+        if (dist < 300) {
+          // User was near bottom — scroll for them smoothly
+          scrollToBottom("smooth");
+        } else {
+          // User is reading older messages — just show the button
+          setShowScrollDown(true);
+        }
+      }
+    }
+    prevMsgCount.current = newCount;
+  }, [messages, scrollToBottom]);
 
   // ─── File upload helper ─────────────────────────────────────────────────────
+  // NOTE: chat-files bucket is now PRIVATE. We store the storage path in DB
+  // and generate signed URLs on the fly for display.
   const uploadChatFile = async (file: File): Promise<{ url: string; name: string; type: string } | null> => {
     if (!currentUserId) return null;
     const ext = file.name.split(".").pop() || "bin";
@@ -381,10 +427,15 @@ export default function BatchWorkspace() {
       console.error("[upload]", error);
       return null;
     }
-    const {
-      data: { publicUrl },
-    } = supabase.storage.from("chat-files").getPublicUrl(path);
-    return { url: publicUrl, name: file.name, type: file.type };
+    // Generate a signed URL valid for 7 days so the link works even from private bucket
+    const { data: signedData, error: signErr } = await supabase.storage
+      .from("chat-files")
+      .createSignedUrl(path, 60 * 60 * 24 * 7); // 7 days
+    if (signErr || !signedData) {
+      console.error("[signed-url]", signErr);
+      return null;
+    }
+    return { url: signedData.signedUrl, name: file.name, type: file.type };
   };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -711,8 +762,9 @@ export default function BatchWorkspace() {
               className="flex-1 overflow-y-auto p-4 space-y-3"
               onScroll={(e) => {
                 const target = e.currentTarget;
-                const isNearBottom = target.scrollHeight - target.scrollTop - target.clientHeight < 200;
-                setShowScrollDown(!isNearBottom);
+                const distFromBottom = target.scrollHeight - target.scrollTop - target.clientHeight;
+                // Show button if more than 100px from bottom (not just near-bottom)
+                setShowScrollDown(distFromBottom > 100);
               }}
             >
               {messages.length === 0 && (
@@ -810,6 +862,13 @@ export default function BatchWorkspace() {
                                 src={msg.file_url}
                                 alt={msg.file_name || "image"}
                                 className="max-w-[200px] max-h-[160px] rounded-lg object-cover border border-white/20"
+                                // When image loads it shifts layout — scroll to keep at bottom if user was there
+                                onLoad={() => {
+                                  const container = chatContainerRef.current;
+                                  if (!container) return;
+                                  const dist = container.scrollHeight - container.scrollTop - container.clientHeight;
+                                  if (dist < 300) container.scrollTop = container.scrollHeight;
+                                }}
                               />
                             </a>
                           ) : (
@@ -915,17 +974,27 @@ export default function BatchWorkspace() {
               </div>
             )}
 
-            {showScrollDown && (
-              <div className="absolute bottom-[80px] right-4 z-20 animate-in slide-in-from-bottom-2 fade-in">
-                <Button
-                  size="icon"
-                  className="rounded-full shadow-lg gradient-hero text-white border-0 w-10 h-10 hover:opacity-90"
-                  onClick={() => chatEndRef.current?.scrollIntoView({ behavior: "smooth" })}
+            {/* Scroll-to-bottom button — visible whenever user is not at the bottom.
+                 Mimics WhatsApp behaviour: appears as soon as you scroll up even 1px */}
+            <AnimatePresence>
+              {showScrollDown && (
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.8, y: 10 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.8, y: 10 }}
+                  transition={{ duration: 0.15 }}
+                  className="absolute bottom-[80px] right-4 z-20"
                 >
-                  <ArrowDown className="w-5 h-5" />
-                </Button>
-              </div>
-            )}
+                  <Button
+                    size="icon"
+                    className="rounded-full shadow-xl gradient-hero text-white border-0 w-11 h-11 hover:opacity-90"
+                    onClick={() => scrollToBottom("smooth")}
+                  >
+                    <ArrowDown className="w-5 h-5" />
+                  </Button>
+                </motion.div>
+              )}
+            </AnimatePresence>
 
             {/* Chat input */}
             <div className="border-t border-border/50 p-3 bg-card flex gap-2 items-end">
