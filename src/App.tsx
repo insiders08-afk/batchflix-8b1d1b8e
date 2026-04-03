@@ -86,7 +86,7 @@ const App = () => (
               <Route path="/admin/settings" element={<AdminSettings />} />
               <Route path="/admin/approvals" element={<AdminApprovals />} />
               <Route path="/admin/team" element={<AdminTeam />} />
-              <Route path="/admin/batch-applications" element={<AdminBatchApplications />} />
+              <Route path="/admin/batch-applications" element={<AdminApprovals />} />
               <Route path="/auth/admin" element={<AdminAuth />} />
               <Route path="/auth/superadmin" element={<SuperAdminAuth />} />
               <Route path="/superadmin" element={<SuperAdminDashboard />} />
