@@ -214,7 +214,7 @@ async function encryptPayload(
   const nonce = await hkdf(salt, prkKey, nonceInfo, 12);
 
   // Encrypt with AES-128-GCM
-  const aesKey = await crypto.subtle.importKey("raw", cek, { name: "AES-GCM" }, false, ["encrypt"]);
+  const aesKey = await crypto.subtle.importKey("raw", cek.buffer as ArrayBuffer, { name: "AES-GCM" }, false, ["encrypt"]);
 
   // Pad plaintext: add \x02 delimiter byte
   const plaintextBytes = new TextEncoder().encode(plaintext);
