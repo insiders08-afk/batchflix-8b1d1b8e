@@ -223,7 +223,7 @@ async function encryptPayload(
   paddedPlaintext[plaintextBytes.length] = 2; // record delimiter
 
   const encrypted = await crypto.subtle.encrypt(
-    { name: "AES-GCM", iv: nonce },
+    { name: "AES-GCM", iv: nonce.buffer as ArrayBuffer },
     aesKey,
     paddedPlaintext
   );

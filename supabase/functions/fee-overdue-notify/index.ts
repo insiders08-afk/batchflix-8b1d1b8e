@@ -60,9 +60,9 @@ async function sendWebPush(
   const senderPublicKeyRaw = await crypto.subtle.exportKey("raw", senderKeyPair.publicKey);
   const authSecret = base64UrlDecode(subscription.auth_key);
   const hkdfSalt = crypto.getRandomValues(new Uint8Array(16));
-  const ikm = await crypto.subtle.importKey("raw", sharedSecret, "HKDF", false, ["deriveBits"]);
-  const prk = await crypto.subtle.deriveBits({ name: "HKDF", hash: "SHA-256", salt: authSecret, info: new Uint8Array(0) }, ikm, 256);
-  const prkKey = await crypto.subtle.importKey("raw", prk, "HKDF", false, ["deriveBits"]);
+  const ikm = await crypto.subtle.importKey("raw", new Uint8Array(sharedSecret).buffer as ArrayBuffer, "HKDF", false, ["deriveBits"]);
+  const prk = await crypto.subtle.deriveBits({ name: "HKDF", hash: "SHA-256", salt: authSecret.buffer as ArrayBuffer, info: new Uint8Array(0).buffer as ArrayBuffer }, ikm, 256);
+  const prkKey = await crypto.subtle.importKey("raw", new Uint8Array(prk).buffer as ArrayBuffer, "HKDF", false, ["deriveBits"]);
 
   const buildInfo = (label: Uint8Array, pub1: ArrayBuffer, pub2: Uint8Array, last: number) => {
     const arr = [label, new Uint8Array([0,0,0,65]), new Uint8Array(pub1), new Uint8Array([0,0,0,65]), pub2, new Uint8Array([last])];
