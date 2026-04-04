@@ -55,10 +55,10 @@ async function hkdf(
   length: number
 ): Promise<Uint8Array> {
   const keyMaterial = await crypto.subtle.importKey(
-    "raw", ikm, { name: "HKDF" }, false, ["deriveBits"]
+    "raw", ikm.buffer as ArrayBuffer, { name: "HKDF" }, false, ["deriveBits"]
   );
   const bits = await crypto.subtle.deriveBits(
-    { name: "HKDF", hash: "SHA-256", salt, info },
+    { name: "HKDF", hash: "SHA-256", salt: salt.buffer as ArrayBuffer, info: info.buffer as ArrayBuffer },
     keyMaterial,
     length * 8
   );
@@ -179,7 +179,7 @@ async function encryptPayload(
   // Import user public key
   const userPublicCryptoKey = await crypto.subtle.importKey(
     "raw",
-    userPublicKeyBytes,
+    userPublicKeyBytes.buffer as ArrayBuffer,
     { name: "ECDH", namedCurve: "P-256" },
     false,
     []
@@ -214,7 +214,7 @@ async function encryptPayload(
   const nonce = await hkdf(salt, prkKey, nonceInfo, 12);
 
   // Encrypt with AES-128-GCM
-  const aesKey = await crypto.subtle.importKey("raw", cek, { name: "AES-GCM" }, false, ["encrypt"]);
+  const aesKey = await crypto.subtle.importKey("raw", cek.buffer as ArrayBuffer, { name: "AES-GCM" }, false, ["encrypt"]);
 
   // Pad plaintext: add \x02 delimiter byte
   const plaintextBytes = new TextEncoder().encode(plaintext);
@@ -223,7 +223,7 @@ async function encryptPayload(
   paddedPlaintext[plaintextBytes.length] = 2; // record delimiter
 
   const encrypted = await crypto.subtle.encrypt(
-    { name: "AES-GCM", iv: nonce },
+    { name: "AES-GCM", iv: nonce.buffer as ArrayBuffer },
     aesKey,
     paddedPlaintext
   );

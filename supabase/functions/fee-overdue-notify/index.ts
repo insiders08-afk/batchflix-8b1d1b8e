@@ -36,7 +36,7 @@ async function buildVapidJWT(audience: string, subject: string, privateKeyB64: s
   const payloadB64 = base64UrlEncode(enc.encode(JSON.stringify(payload)));
   const signingInput = `${headerB64}.${payloadB64}`;
   const keyData = base64UrlDecode(privateKeyB64);
-  const cryptoKey = await crypto.subtle.importKey("pkcs8", keyData, { name: "ECDSA", namedCurve: "P-256" }, false, ["sign"]);
+  const cryptoKey = await crypto.subtle.importKey("pkcs8", keyData.buffer as ArrayBuffer, { name: "ECDSA", namedCurve: "P-256" }, false, ["sign"]);
   const signature = await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, cryptoKey, enc.encode(signingInput));
   return `${signingInput}.${base64UrlEncode(new Uint8Array(signature))}`;
 }
@@ -54,15 +54,15 @@ async function sendWebPush(
   const enc = new TextEncoder();
   const plaintext = enc.encode(payload);
 
-  const recipientPublicKey = await crypto.subtle.importKey("raw", base64UrlDecode(subscription.p256dh), { name: "ECDH", namedCurve: "P-256" }, false, []);
+  const recipientPublicKey = await crypto.subtle.importKey("raw", base64UrlDecode(subscription.p256dh).buffer as ArrayBuffer, { name: "ECDH", namedCurve: "P-256" }, false, []);
   const senderKeyPair = await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveBits"]);
   const sharedSecret = await crypto.subtle.deriveBits({ name: "ECDH", public: recipientPublicKey }, senderKeyPair.privateKey, 256);
   const senderPublicKeyRaw = await crypto.subtle.exportKey("raw", senderKeyPair.publicKey);
   const authSecret = base64UrlDecode(subscription.auth_key);
   const hkdfSalt = crypto.getRandomValues(new Uint8Array(16));
-  const ikm = await crypto.subtle.importKey("raw", sharedSecret, "HKDF", false, ["deriveBits"]);
-  const prk = await crypto.subtle.deriveBits({ name: "HKDF", hash: "SHA-256", salt: authSecret, info: new Uint8Array(0) }, ikm, 256);
-  const prkKey = await crypto.subtle.importKey("raw", prk, "HKDF", false, ["deriveBits"]);
+  const ikm = await crypto.subtle.importKey("raw", new Uint8Array(sharedSecret).buffer as ArrayBuffer, "HKDF", false, ["deriveBits"]);
+  const prk = await crypto.subtle.deriveBits({ name: "HKDF", hash: "SHA-256", salt: authSecret.buffer as ArrayBuffer, info: new Uint8Array(0).buffer as ArrayBuffer }, ikm, 256);
+  const prkKey = await crypto.subtle.importKey("raw", new Uint8Array(prk).buffer as ArrayBuffer, "HKDF", false, ["deriveBits"]);
 
   const buildInfo = (label: Uint8Array, pub1: ArrayBuffer, pub2: Uint8Array, last: number) => {
     const arr = [label, new Uint8Array([0,0,0,65]), new Uint8Array(pub1), new Uint8Array([0,0,0,65]), pub2, new Uint8Array([last])];
