@@ -36,7 +36,7 @@ async function buildVapidJWT(audience: string, subject: string, privateKeyB64: s
   const payloadB64 = base64UrlEncode(enc.encode(JSON.stringify(payload)));
   const signingInput = `${headerB64}.${payloadB64}`;
   const keyData = base64UrlDecode(privateKeyB64);
-  const cryptoKey = await crypto.subtle.importKey("pkcs8", keyData, { name: "ECDSA", namedCurve: "P-256" }, false, ["sign"]);
+  const cryptoKey = await crypto.subtle.importKey("pkcs8", keyData.buffer as ArrayBuffer, { name: "ECDSA", namedCurve: "P-256" }, false, ["sign"]);
   const signature = await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, cryptoKey, enc.encode(signingInput));
   return `${signingInput}.${base64UrlEncode(new Uint8Array(signature))}`;
 }
