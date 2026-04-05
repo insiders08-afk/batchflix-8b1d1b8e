@@ -311,7 +311,16 @@ export default function SuperAdminAuth() {
               <p className="text-sm">Access to City Partner dashboard granted</p>
             </div>
           </div>
-          <Link to="/"><Button variant="outline" size="sm">Back to Home</Button></Link>
+          <div className="flex flex-col gap-3">
+            <Link to="/">
+              <Button variant="outline" size="sm" className="w-full h-11">
+                Sign Out & Return Home
+              </Button>
+            </Link>
+            <p className="text-xs text-muted-foreground">
+              You can check your request details later by simply signing in again. Do not apply again.
+            </p>
+          </div>
         </motion.div>
       </div>
     );

@@ -583,9 +583,12 @@ export default function AdminAuth() {
 
           </div>
           
-          <Button variant="outline" className="w-full h-11" onClick={() => { supabase.auth.signOut(); navigate("/"); }}>
+          <Button variant="outline" className="w-full h-11 mb-3" onClick={() => { supabase.auth.signOut(); navigate("/"); }}>
             Sign Out & Return Home
           </Button>
+          <p className="text-xs text-muted-foreground mt-3">
+            You can check your request details later by simply signing in again. Do not register again.
+          </p>
         </motion.div>
       </div>
     );
