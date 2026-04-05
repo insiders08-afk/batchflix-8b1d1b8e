@@ -315,6 +315,10 @@ export default function AdminAuth() {
       });
       if (roleError && !roleError.message?.includes("duplicate")) throw roleError;
 
+      // FIX: End the session locally so the user isn't improperly redirected if they tap "Back"
+      // Since they are just pending, they shouldn't hold an active token yet.
+      await supabase.auth.signOut().catch(() => {});
+
       setPendingInstituteName(regForm.instituteName);
       setPendingCity(effectiveCity);
       fetchSuperAdminPhone(effectiveCity);
