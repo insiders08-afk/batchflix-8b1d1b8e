@@ -292,38 +292,48 @@ export default function AdminAuth() {
             setStep("rejected");
           }
         }
-
-        // Setup Realtime listener
-        profileSubscription = supabase
-          .channel(`profile-status-${session.user.id}`)
-          .on(
-            'postgres_changes',
-            {
-              event: 'UPDATE',
-              schema: 'public',
-              table: 'profiles',
-              filter: `user_id=eq.${session.user.id}`
-            },
-            (payload) => {
-              const newStatus = payload.new.status;
-              if (newStatus === 'approved') {
-                toast({ title: "Approved!", description: "Your institute has been approved. Redirecting..." });
-                navigate("/admin", { replace: true });
-              } else if (newStatus === 'rejected') {
-                setStep('rejected');
-              }
-            }
-          )
-          .subscribe();
       }
     });
+  }, [navigate]);
+
+  useEffect(() => {
+    let profileSubscription: any;
+
+    if (step === "pending") {
+      supabase.auth.getUser().then(({ data: { user } }) => {
+        if (user) {
+          // Setup Realtime listener
+          profileSubscription = supabase
+            .channel(`profile-status-${user.id}`)
+            .on(
+              'postgres_changes',
+              {
+                event: 'UPDATE',
+                schema: 'public',
+                table: 'profiles',
+                filter: `user_id=eq.${user.id}`
+              },
+              (payload) => {
+                const newStatus = payload.new.status;
+                if (newStatus === 'approved') {
+                  toast({ title: "Approved!", description: "Your institute has been approved. Redirecting..." });
+                  navigate("/admin", { replace: true });
+                } else if (newStatus === 'rejected') {
+                  setStep('rejected');
+                }
+              }
+            )
+            .subscribe();
+        }
+      });
+    }
 
     return () => {
       if (profileSubscription) {
         supabase.removeChannel(profileSubscription);
       }
     };
-  }, [navigate, toast]);
+  }, [step, navigate, toast]);
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
