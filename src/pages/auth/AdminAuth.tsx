@@ -225,32 +225,43 @@ export default function AdminAuth() {
   const checkApprovalStatus = async () => {
     setRefreshing(true);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) return;
+      // Force refresh user data from server
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      if (authError) throw authError;
+      if (!user) {
+        toast({ title: "Session lost", description: "Please sign in again.", variant: "destructive" });
+        setStep("login");
+        return;
+      }
 
-      const { data: profile } = await supabase
+      const { data: profile, error: profError } = await supabase
         .from("profiles")
         .select("status, role")
-        .eq("user_id", session.user.id)
+        .eq("user_id", user.id)
         .single();
 
+      if (profError) throw profError;
+
       if (profile?.status === "approved") {
-        toast({ title: "Approved!", description: "Your institute has been approved. Redirecting to dashboard..." });
-        navigate(profile.role === "admin" ? "/admin" : "/login");
+        toast({ title: "Approved!", description: "Your institute has been approved. Redirecting..." });
+        navigate("/admin", { replace: true });
       } else {
         toast({ title: "Still Pending", description: "Your request is still being reviewed by the city partner." });
       }
-    } catch (err) {
-      console.error("Refresh failed:", err);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Update failed";
+      toast({ title: "Refresh failed", description: msg, variant: "destructive" });
     } finally {
       setRefreshing(false);
     }
   };
 
   useEffect(() => {
+    let profileSubscription: any;
+
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (session?.user) {
-        // Fetch profile
+        // Initial fetch profile
         const { data: profile } = await supabase
           .from("profiles")
           .select("role, status, institute_code")
@@ -260,6 +271,7 @@ export default function AdminAuth() {
         if (profile && profile.role === "admin") {
           if (profile.status === "approved") {
             navigate("/admin", { replace: true });
+            return;
           } else if (profile.status === "pending") {
             // Fetch exact institute details for the card
             if (profile.institute_code) {
@@ -280,9 +292,38 @@ export default function AdminAuth() {
             setStep("rejected");
           }
         }
+
+        // Setup Realtime listener
+        profileSubscription = supabase
+          .channel(`profile-status-${session.user.id}`)
+          .on(
+            'postgres_changes',
+            {
+              event: 'UPDATE',
+              schema: 'public',
+              table: 'profiles',
+              filter: `user_id=eq.${session.user.id}`
+            },
+            (payload) => {
+              const newStatus = payload.new.status;
+              if (newStatus === 'approved') {
+                toast({ title: "Approved!", description: "Your institute has been approved. Redirecting..." });
+                navigate("/admin", { replace: true });
+              } else if (newStatus === 'rejected') {
+                setStep('rejected');
+              }
+            }
+          )
+          .subscribe();
       }
     });
-  }, [navigate]);
+
+    return () => {
+      if (profileSubscription) {
+        supabase.removeChannel(profileSubscription);
+      }
+    };
+  }, [navigate, toast]);
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
