@@ -34,6 +34,7 @@ import {
   MousePointerClick,
 } from "lucide-react";
 import InstallButton from "@/components/InstallButton";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { supabase } from "@/integrations/supabase/client";
 
 interface BeforeInstallPromptEvent extends Event {
@@ -342,6 +343,7 @@ export default function Index() {
 
             {/* Right actions */}
             <div className="flex items-center gap-3">
+              <ThemeToggle />
               <InstallButton />
               <Link to="/role-select" className="hidden sm:inline-flex">
                 <button

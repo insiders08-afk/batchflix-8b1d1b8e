@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Card } from "@/components/ui/card";
 import { ArrowLeft, Zap, Shield, CheckCircle2, Clock, XCircle, Loader2, Eye, EyeOff, Phone, KeyRound, Search, ChevronDown, RotateCw } from "lucide-react";
 import InstallButton from "@/components/InstallButton";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { INDIA_CITIES } from "@/lib/constants";
@@ -633,6 +634,7 @@ export default function AdminAuth() {
             <span className="text-lg font-display font-bold text-gradient">BatchHub</span>
           </Link>
           <div className="flex items-center gap-2">
+            <ThemeToggle />
             <InstallButton />
             <Link to="/role-select">
               <Button variant="ghost" size="sm" className="gap-2">

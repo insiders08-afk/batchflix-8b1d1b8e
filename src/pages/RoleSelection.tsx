@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, GraduationCap, BookOpen, Users, UserCircle, ArrowRight, Zap } from "lucide-react";
 import InstallButton from "@/components/InstallButton";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 const roles = [
   {
@@ -60,6 +61,7 @@ export default function RoleSelection() {
             <span className="text-lg font-display font-bold text-gradient">BatchHub</span>
           </Link>
           <div className="flex items-center gap-2">
+            <ThemeToggle />
             <InstallButton />
             <Link to="/">
               <Button variant="ghost" size="sm" className="gap-2">

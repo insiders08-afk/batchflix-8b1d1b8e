@@ -10,6 +10,7 @@ import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import InstallButton from "@/components/InstallButton";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { usePushNotifications } from "@/hooks/use-push-notifications";
 
 type Role = "admin" | "teacher" | "student" | "parent";
@@ -302,6 +303,8 @@ export default function DashboardLayout({ children, title, role = "admin" }: Das
             {title && <h1 className="font-display font-semibold text-base sm:text-lg truncate">{title}</h1>}
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
+            <ThemeToggle showLabel className="hidden sm:flex" />
+            <ThemeToggle className="sm:hidden" />
             <InstallButton />
             <div className="hidden sm:flex items-center gap-2 text-sm text-muted-foreground bg-muted rounded-lg px-3 py-1.5">
               <span className="w-2 h-2 rounded-full bg-success animate-pulse" />
