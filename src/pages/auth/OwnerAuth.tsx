@@ -97,6 +97,7 @@ export default function OwnerAuth() {
             <span className="text-lg font-display font-bold text-gradient">BatchHub</span>
           </Link>
           <div className="flex items-center gap-2">
+            <ThemeToggle />
             <InstallButton />
             <Link to="/">
               <Button variant="ghost" size="sm" className="gap-2">

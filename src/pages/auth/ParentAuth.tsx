@@ -208,6 +208,7 @@ export default function ParentAuth() {
             <span className="text-lg font-display font-bold text-gradient">BatchHub</span>
           </Link>
           <div className="flex items-center gap-2">
+            <ThemeToggle />
             <InstallButton />
             <Link to="/role-select">
               <Button variant="ghost" size="sm" className="gap-2">
