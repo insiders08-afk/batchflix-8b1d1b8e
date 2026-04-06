@@ -34,6 +34,7 @@ import {
   MousePointerClick,
 } from "lucide-react";
 import InstallButton from "@/components/InstallButton";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { supabase } from "@/integrations/supabase/client";
 
 interface BeforeInstallPromptEvent extends Event {
