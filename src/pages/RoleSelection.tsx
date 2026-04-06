@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, GraduationCap, BookOpen, Users, UserCircle, ArrowRight, Zap } from "lucide-react";
 import InstallButton from "@/components/InstallButton";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 const roles = [
   {
