@@ -662,13 +662,13 @@ export default function AdminAuth() {
             {/* Toggle */}
             <div className="flex rounded-lg bg-muted p-1 mb-6">
               <button
-                onClick={() => setStep("register")}
+                onClick={() => { setUserExplicitStep(true); setStep("register"); }}
                 className={`flex-1 text-sm font-medium py-2 rounded-md transition-all ${step === "register" ? "bg-card shadow text-foreground" : "text-muted-foreground"}`}>
                 
                 Register Institute
               </button>
               <button
-                onClick={() => setStep("login")}
+                onClick={() => { setUserExplicitStep(true); setStep("login"); }}
                 className={`flex-1 text-sm font-medium py-2 rounded-md transition-all ${step === "login" ? "bg-card shadow text-foreground" : "text-muted-foreground"}`}>
                 
                 Sign In
