@@ -990,10 +990,18 @@ export default function BatchWorkspace() {
                               )}
                               <span className="truncate max-w-[140px]">{msg.file_name || "Download file"}</span>
                             </a>
-                          )}
+                      )}
                         </div>
                       )}
+                      {/* Message text */}
+                      {msg.message && msg.message !== msg.file_name && (
+                        <span>
+                          {msg.message}
+                          {msg.is_edited && (
+                            <span className="ml-1.5 text-[10px] opacity-60 italic">(edited)</span>
                           )}
+                        </span>
+                      )}
                         </>
                       )}
                     </div>
