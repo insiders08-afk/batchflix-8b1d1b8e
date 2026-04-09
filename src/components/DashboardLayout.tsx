@@ -4,7 +4,8 @@ import {
   LayoutDashboard, Users, CalendarCheck, Megaphone,
   FlaskConical, IndianRupee, GraduationCap, Settings,
   LogOut, Zap, ChevronLeft, Menu, X, ShieldCheck,
-  BookOpen, Trophy, ClipboardList, UserCircle, BookMarked, PlusCircle, Download
+  BookOpen, Trophy, ClipboardList, UserCircle, BookMarked, PlusCircle, Download,
+  MessageSquare
 } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
@@ -12,6 +13,8 @@ import { supabase } from "@/integrations/supabase/client";
 import InstallButton from "@/components/InstallButton";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { usePushNotifications } from "@/hooks/use-push-notifications";
+import BottomNav from "@/components/BottomNav";
+import { useDMList } from "@/hooks/useDMList";
 
 type Role = "admin" | "teacher" | "student" | "parent";
 
@@ -20,6 +23,7 @@ const menusByRole: Record<Role, { icon: React.ElementType; label: string; path: 
     { icon: LayoutDashboard, label: "Overview", path: "/admin" },
     { icon: Users, label: "Batches", path: "/admin/batches" },
     { icon: CalendarCheck, label: "Attendance", path: "/admin/attendance" },
+    { icon: MessageSquare, label: "Chats", path: "/admin/chat" },
     { icon: Megaphone, label: "Announcements", path: "/admin/announcements" },
     { icon: FlaskConical, label: "Tests", path: "/admin/tests" },
     { icon: IndianRupee, label: "Fees", path: "/admin/fees" },
@@ -31,6 +35,7 @@ const menusByRole: Record<Role, { icon: React.ElementType; label: string; path: 
   teacher: [
     { icon: LayoutDashboard, label: "My Dashboard", path: "/teacher" },
     { icon: CalendarCheck, label: "Attendance", path: "/teacher/attendance" },
+    { icon: MessageSquare, label: "Chats", path: "/teacher/chat" },
     { icon: Megaphone, label: "Announcements", path: "/teacher/announcements" },
     { icon: FlaskConical, label: "Tests & Scores", path: "/teacher/tests" },
     { icon: BookOpen, label: "Homework / DPP", path: "/teacher/homework" },
@@ -40,6 +45,7 @@ const menusByRole: Record<Role, { icon: React.ElementType; label: string; path: 
     { icon: LayoutDashboard, label: "My Dashboard", path: "/student" },
     { icon: PlusCircle, label: "Join a Batch", path: "/student/apply-batch" },
     { icon: CalendarCheck, label: "My Attendance", path: "/student/attendance" },
+    { icon: MessageSquare, label: "Chats", path: "/student/chat" },
     { icon: Trophy, label: "Tests & Scores", path: "/student/tests" },
     { icon: BookOpen, label: "Homework / DPP", path: "/student/homework" },
     { icon: IndianRupee, label: "My Fees", path: "/student/fees" },
@@ -86,9 +92,19 @@ export default function DashboardLayout({ children, title, role = "admin" }: Das
   const [instituteName, setInstituteName] = useState("");
   const [instituteCode, setInstituteCode] = useState<string | null>(null);
   const [authChecked, setAuthChecked] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState("");
 
   // Register push notification subscription once we have the institute code
   usePushNotifications(instituteCode);
+
+  // DM unread count for bottom nav badge (only for roles that have chat)
+  const showBottomNav = role === "admin" || role === "teacher" || role === "student";
+  // Only subscribe to DM list for roles that actually use the chat feature
+  const { totalUnread: dmUnread } = useDMList({
+    currentUserId: showBottomNav ? currentUserId : "",
+    currentUserRole: role,
+    instituteCode: showBottomNav ? (instituteCode ?? "") : "",
+  });
 
   const menuItems = menusByRole[role];
   const isAdmin = role === "admin";
@@ -96,6 +112,7 @@ export default function DashboardLayout({ children, title, role = "admin" }: Das
   // Auth guard + profile fetch — uses getSession() (localStorage, instant) not getUser() (network)
   useEffect(() => {
     const loadProfile = async (userId: string, email: string | undefined) => {
+      setCurrentUserId(userId);
       const { data: profile } = await supabase
         .from("profiles")
         .select("full_name, institute_code")
@@ -210,6 +227,8 @@ export default function DashboardLayout({ children, title, role = "admin" }: Das
         {menuItems.map((item) => {
           const active = isActiveItem(item.path);
           const showApprovalBadge = isAdmin && approvalsPending > 0 && item.path === "/admin/approvals";
+          const isChatItem = item.path.endsWith("/chat");
+          const showChatBadge = isChatItem && dmUnread > 0;
           return (
             <Link
               key={`${item.path}-${item.label}`}
@@ -228,6 +247,11 @@ export default function DashboardLayout({ children, title, role = "admin" }: Das
               {!collapsed && showApprovalBadge && (
                 <span className="text-xs font-bold bg-danger text-white rounded-full w-5 h-5 flex items-center justify-center flex-shrink-0">
                   {approvalsPending}
+                </span>
+              )}
+              {!collapsed && showChatBadge && (
+                <span className="text-xs font-bold bg-red-500 text-white rounded-full min-w-[20px] h-5 flex items-center justify-center px-1 flex-shrink-0">
+                  {dmUnread > 99 ? "99+" : dmUnread}
                 </span>
               )}
             </Link>
@@ -316,10 +340,18 @@ export default function DashboardLayout({ children, title, role = "admin" }: Das
           </div>
         </header>
 
-        <main className="flex-1 overflow-y-auto overflow-x-hidden p-3 sm:p-4 md:p-6">
+        <main className={cn(
+          "flex-1 overflow-y-auto overflow-x-hidden p-3 sm:p-4 md:p-6",
+          showBottomNav && "pb-20 lg:pb-6" // extra bottom padding for bottom nav on mobile
+        )}>
           {children}
         </main>
       </div>
+
+      {/* Mobile bottom navigation — only for admin/teacher/student */}
+      {showBottomNav && (
+        <BottomNav role={role as "admin" | "teacher" | "student"} chatUnreadCount={dmUnread} />
+      )}
     </div>
   );
 }

@@ -53,6 +53,10 @@ const OwnerDashboard = lazy(() => import("./pages/OwnerDashboard"));
 const CityPartnerApply = lazy(() => import("./pages/CityPartnerApply"));
 const Install = lazy(() => import("./pages/Install"));
 const ResetPassword = lazy(() => import("./pages/ResetPassword"));
+const AdminChatHub = lazy(() => import("./pages/AdminChatHub"));
+const TeacherChatHub = lazy(() => import("./pages/TeacherChatHub"));
+const StudentChatHub = lazy(() => import("./pages/StudentChatHub"));
+const DMConversation = lazy(() => import("./pages/DMConversation"));
 
 const queryClient = new QueryClient();
 
@@ -100,6 +104,7 @@ const App = () => (
               <Route path="/apply/city-partner" element={<CityPartnerApply />} />
               <Route path="/install" element={<Install />} />
               <Route path="/batch/:id" element={<BatchWorkspace />} />
+              <Route path="/admin/chat" element={<AdminChatHub />} />
               {/* Teacher */}
               <Route path="/teacher" element={<TeacherDashboard />} />
               <Route path="/teacher/settings" element={<TeacherSettings />} />
@@ -107,6 +112,7 @@ const App = () => (
               <Route path="/teacher/announcements" element={<TeacherAnnouncements />} />
               <Route path="/teacher/tests" element={<TeacherTests />} />
               <Route path="/teacher/homework" element={<TeacherHomework />} />
+              <Route path="/teacher/chat" element={<TeacherChatHub />} />
               {/* Student */}
               <Route path="/student" element={<StudentDashboard />} />
               <Route path="/student/settings" element={<StudentSettings />} />
@@ -116,6 +122,9 @@ const App = () => (
               <Route path="/student/announcements" element={<StudentAnnouncements />} />
               <Route path="/student/apply-batch" element={<StudentBatchApply />} />
               <Route path="/student/fees" element={<StudentFees />} />
+              <Route path="/student/chat" element={<StudentChatHub />} />
+              {/* Shared DM conversation screen */}
+              <Route path="/dm/:conversationId" element={<DMConversation />} />
               {/* Parent */}
               <Route path="/parent" element={<ParentDashboard />} />
               <Route path="/parent/fees" element={<ParentFees />} />
