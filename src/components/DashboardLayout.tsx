@@ -106,6 +106,11 @@ export default function DashboardLayout({ children, title, role = "admin" }: Das
     instituteCode: showBottomNav ? (instituteCode ?? "") : "",
   });
 
+  // Fix #29: primary paths that appear in BottomNav — hide from mobile hamburger sidebar
+  const bottomNavPaths = showBottomNav
+    ? new Set([`/${role}`, `/${role}/attendance`, `/${role}/chat`])
+    : new Set<string>();
+
   const menuItems = menusByRole[role];
   const isAdmin = role === "admin";
 
@@ -229,13 +234,17 @@ export default function DashboardLayout({ children, title, role = "admin" }: Das
           const showApprovalBadge = isAdmin && approvalsPending > 0 && item.path === "/admin/approvals";
           const isChatItem = item.path.endsWith("/chat");
           const showChatBadge = isChatItem && dmUnread > 0;
+          // Fix #29: On mobile, skip items that are in BottomNav to avoid double navigation
+          const isBottomNavItem = bottomNavPaths.has(item.path);
           return (
             <Link
               key={`${item.path}-${item.label}`}
               to={item.path}
               onClick={() => setMobileOpen(false)}
               className={cn(
-                "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all group",
+                "items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all group",
+                // Only show on desktop if it's a bottom-nav item (mobile has it in BottomNav)
+                isBottomNavItem ? "hidden lg:flex" : "flex",
                 active
                   ? "bg-sidebar-primary text-white shadow-primary/30 shadow-md"
                   : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"

@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   ArrowLeft, Send, Paperclip, X, FileText, Image as ImageIcon,
   Download, Trash2, Edit2, MoreVertical, ThumbsUp, ThumbsDown,
-  ArrowDown, Loader2, Check,
+  ArrowDown, Loader2, Check, ChevronsUp,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
@@ -22,6 +22,16 @@ import { useDirectMessages } from "@/hooks/useDirectMessages";
 import type { DirectMessage } from "@/types/chat";
 
 const MAX_FILE_SIZE_MB = 10;
+
+// Fix #22: Role-based avatar colors instead of always gradient-hero
+const ROLE_AVATAR: Record<string, string> = {
+  admin:   "bg-indigo-500",
+  teacher: "bg-blue-500",
+  student: "bg-emerald-500",
+};
+function roleAvatar(role: string) {
+  return ROLE_AVATAR[role] ?? "bg-slate-500";
+}
 
 export default function DMConversation() {
   const { conversationId } = useParams<{ conversationId: string }>();
@@ -52,11 +62,16 @@ export default function DMConversation() {
   const chatEndRef = useRef<HTMLDivElement>(null);
   const initialScrollDone = useRef(false);
 
-  // ── Session & conversation info ─────────────────────────
+  // ── Session & conversation info ─────────────────────────────
   useEffect(() => {
     const init = async () => {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user || !conversationId) return;
+
+      // Fix #12: Auth guard — redirect to login if not authenticated
+      if (!user || !conversationId) {
+        navigate("/role-select", { replace: true });
+        return;
+      }
       setCurrentUserId(user.id);
 
       const { data: profile } = await supabase
@@ -94,17 +109,19 @@ export default function DMConversation() {
       setPageLoading(false);
     };
     init();
-  }, [conversationId]);
+  }, [conversationId, navigate]);
 
-  // ── Messages hook ─────────────────────────────────────
+  // ── Messages hook ───────────────────────────────────────────
   const {
     messages,
     loading: msgsLoading,
+    hasMore,
+    loadingMore,
+    loadMore,
     sendMessage,
     editMessage,
     deleteMessage,
     reactToMessage,
-    markAsRead,
   } = useDirectMessages({
     conversationId: conversationId ?? "",
     currentUserId,
@@ -113,33 +130,24 @@ export default function DMConversation() {
     instituteCode,
   });
 
-  // Mark as read when entering
-  useEffect(() => {
-    if (!msgsLoading && currentUserId && conversationId) {
-      markAsRead();
-    }
-  }, [msgsLoading, currentUserId, conversationId, markAsRead]);
-
-  // ── Scroll management ─────────────────────────────────
+  // ── Scroll management ──────────────────────────────────────
+  // Fix #18: Use scrollIntoView which properly respects browser reflow
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
-    const container = chatContainerRef.current;
-    if (!container) return;
-    container.scrollTop = container.scrollHeight;
-    const dist = container.scrollHeight - container.scrollTop - container.clientHeight;
-    setShowScrollDown(dist > 100);
+    chatEndRef.current?.scrollIntoView({ behavior, block: "end" });
+    setShowScrollDown(false);
   }, []);
 
+  // Initial scroll to bottom after first load
   useEffect(() => {
     if (msgsLoading || messages.length === 0) return;
-    const container = chatContainerRef.current;
-    if (!container) return;
     if (!initialScrollDone.current) {
-      container.scrollTop = container.scrollHeight;
+      chatEndRef.current?.scrollIntoView({ behavior: "instant", block: "end" });
       initialScrollDone.current = true;
       setShowScrollDown(false);
     }
   }, [msgsLoading, messages.length]);
 
+  // Auto-scroll when new messages arrive (only if already near bottom)
   const prevMsgCount = useRef(0);
   useEffect(() => {
     const newCount = messages.length;
@@ -158,16 +166,12 @@ export default function DMConversation() {
     prevMsgCount.current = newCount;
   }, [messages, scrollToBottom]);
 
-  // ── Back navigation ──────────────────────────────────
+  // Fix #11: Always navigate to chat hub — never rely on unreliable history.length
   const handleBack = () => {
-    if (window.history.length > 2) {
-      navigate(-1);
-    } else {
-      navigate(`/${currentUserRole}/chat`);
-    }
+    navigate(`/${currentUserRole}/chat`);
   };
 
-  // ── File helpers ─────────────────────────────────────
+  // ── File helpers ────────────────────────────────────────────
   const isImage = (type: string | null | undefined) => type?.startsWith("image/");
   const isPDF = (type: string | null | undefined) => type === "application/pdf";
 
@@ -182,7 +186,7 @@ export default function DMConversation() {
     e.target.value = "";
   };
 
-  // ── Send handler ─────────────────────────────────────
+  // ── Send handler ────────────────────────────────────────────
   const handleSend = async () => {
     if ((!chatInput.trim() && !attachedFile) || sendingMsg) return;
     setSendingMsg(true);
@@ -192,7 +196,7 @@ export default function DMConversation() {
       setChatInput("");
       setEditingMessage(null);
       setSendingMsg(false);
-      setTimeout(() => inputRef.current?.focus(), 50);
+      // Fix #1: No focus() — keeping focus throughout. Input never lost focus.
       return;
     }
 
@@ -209,7 +213,8 @@ export default function DMConversation() {
     setReplyingTo(null);
     setEditingMessage(null);
     setSendingMsg(false);
-    setTimeout(() => inputRef.current?.focus(), 50);
+    // Fix #1: No setTimeout focus hack — the input never lost focus since
+    // both send button and file button use onMouseDown={e => e.preventDefault()}
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -239,6 +244,12 @@ export default function DMConversation() {
     return role;
   };
 
+  // Fix #14: Resolve reactor names from known participants (1-on-1 DM)
+  const resolveReactorName = (userId: string) => {
+    if (userId === currentUserId) return "You";
+    return otherUserName || "User";
+  };
+
   if (pageLoading || msgsLoading) {
     return (
       <div className="fixed inset-0 flex items-center justify-center bg-background">
@@ -255,8 +266,13 @@ export default function DMConversation() {
           <ArrowLeft className="w-4 h-4" />
         </Button>
 
-        {/* Avatar */}
-        <div className="w-9 h-9 rounded-full gradient-hero flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
+        {/* Fix #22: Role-based avatar color */}
+        <div
+          className={cn(
+            "w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0",
+            roleAvatar(otherUserRole)
+          )}
+        >
           {otherUserName.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2)}
         </div>
 
@@ -275,11 +291,32 @@ export default function DMConversation() {
       <div
         ref={chatContainerRef}
         className="flex-1 overflow-y-auto p-4 space-y-3"
+        style={{ touchAction: "pan-y" }} // Fix #7: let browser handle vertical scroll natively
         onScroll={(e) => {
           const t = e.currentTarget;
           setShowScrollDown(t.scrollHeight - t.scrollTop - t.clientHeight > 100);
         }}
       >
+        {/* Fix #5: Load older messages button */}
+        {hasMore && (
+          <div className="flex justify-center py-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-xs text-muted-foreground gap-1.5"
+              onClick={loadMore}
+              disabled={loadingMore}
+            >
+              {loadingMore ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <ChevronsUp className="w-3.5 h-3.5" />
+              )}
+              {loadingMore ? "Loading..." : "Load older messages"}
+            </Button>
+          </div>
+        )}
+
         {messages.length === 0 && (
           <div className="text-center py-16 text-muted-foreground">
             <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center mx-auto mb-3">
@@ -294,11 +331,13 @@ export default function DMConversation() {
             key={msg.id}
             drag="x"
             dragSnapToOrigin
-            dragConstraints={msg.isSelf ? { left: 0, right: 80 } : { left: -80, right: 0 }}
-            dragElastic={0.4}
+            // Fix #7: tighter constraints + higher snap threshold to reduce accidental triggers
+            dragConstraints={msg.isSelf ? { left: 0, right: 70 } : { left: -70, right: 0 }}
+            dragElastic={0.15}
+            dragMomentum={false}
             onDragEnd={(_, info) => {
-              if (msg.isSelf && info.offset.x > 50) setReplyingTo(msg);
-              else if (!msg.isSelf && info.offset.x < -50) setReplyingTo(msg);
+              if (msg.isSelf && info.offset.x > 60) setReplyingTo(msg);
+              else if (!msg.isSelf && info.offset.x < -60) setReplyingTo(msg);
             }}
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
@@ -306,7 +345,12 @@ export default function DMConversation() {
           >
             {/* Avatar for other user */}
             {!msg.isSelf && (
-              <div className="w-8 h-8 rounded-full gradient-hero flex items-center justify-center text-white text-xs font-bold flex-shrink-0 mt-0.5">
+              <div
+                className={cn(
+                  "w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0 mt-0.5",
+                  roleAvatar(msg.sender_role) // Fix #22: role-based color
+                )}
+              >
                 {msg.sender_name.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2)}
               </div>
             )}
@@ -362,7 +406,7 @@ export default function DMConversation() {
                                 const c = chatContainerRef.current;
                                 if (!c) return;
                                 const dist = c.scrollHeight - c.scrollTop - c.clientHeight;
-                                if (dist < 300) c.scrollTop = c.scrollHeight;
+                                if (dist < 300) chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
                               }}
                             />
                           </a>
@@ -389,12 +433,7 @@ export default function DMConversation() {
 
                     {/* Message text */}
                     {msg.message && msg.message !== msg.file_name && (
-                      <span>
-                        {msg.message}
-                        {msg.is_edited && (
-                          <span className="ml-1.5 text-[10px] opacity-60 italic">(edited)</span>
-                        )}
-                      </span>
+                      <span>{msg.message}</span>
                     )}
                   </>
                 )}
@@ -434,12 +473,21 @@ export default function DMConversation() {
                 </DropdownMenu>
               )}
 
-              {/* Timestamp + reactions */}
+              {/* Timestamp + edited label + reactions */}
               <div className="flex items-center gap-3 mt-1 px-1">
                 <span className="text-[10px] text-muted-foreground">
                   {formatChatDate(msg.created_at)}
-                  {msg.is_edited && <span className="italic opacity-70 ml-1">(Edited)</span>}
+                  {/* Fix #8: Only ONE "edited" indicator — removed duplicate from inside bubble */}
+                  {!msg.is_deleted && msg.is_edited && (
+                    <span className="italic opacity-70 ml-1">(Edited)</span>
+                  )}
                 </span>
+
+                {/* Fix #24: Checkmark for own sent messages */}
+                {msg.isSelf && !msg.is_deleted && (
+                  <Check className="w-3 h-3 text-white/60 flex-shrink-0" />
+                )}
+
                 <div className="flex items-center gap-2">
                   {(["👍", "👎"] as const).map((emoji) => (
                     <button
@@ -566,10 +614,12 @@ export default function DMConversation() {
           accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip"
           onChange={handleFileSelect}
         />
+        {/* Fix #1: onMouseDown preventDefault prevents input from losing focus / keyboard closing */}
         <Button
           variant="ghost"
           size="icon"
           className="w-9 h-9 flex-shrink-0 text-muted-foreground hover:text-primary"
+          onMouseDown={(e) => e.preventDefault()} // Fix #1
           onClick={() => fileInputRef.current?.click()}
           disabled={uploadingFile}
         >
@@ -586,9 +636,11 @@ export default function DMConversation() {
           className="flex-1 text-sm bg-muted/40 border border-border/40 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/50 transition-all resize-none"
         />
 
+        {/* Fix #1: onMouseDown preventDefault keeps keyboard open on iOS */}
         <Button
           size="icon"
           className="w-9 h-9 flex-shrink-0 gradient-hero border-0 text-white shadow-md"
+          onMouseDown={(e) => e.preventDefault()} // Fix #1: prevent input blur on tap
           onClick={handleSend}
           disabled={sendingMsg || (!chatInput.trim() && !attachedFile)}
         >
@@ -627,7 +679,8 @@ export default function DMConversation() {
                     <div className="space-y-1.5 pl-2 border-l-2 border-border/50">
                       {userIds.map((id) => (
                         <p key={id} className="text-sm">
-                          {id === currentUserId ? "You" : "User"}
+                          {/* Fix #14: Show actual names, not just "User" */}
+                          {resolveReactorName(id)}
                         </p>
                       ))}
                     </div>

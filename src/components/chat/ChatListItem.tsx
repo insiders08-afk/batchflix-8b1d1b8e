@@ -59,7 +59,6 @@ interface ChatListItemProps {
   lastMessageAt?: string | null;
   unreadCount?: number;
   onClick?: () => void;
-  loading?: boolean;
   isGroup?: boolean;
 }
 

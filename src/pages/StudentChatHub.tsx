@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { Loader2, MessageSquare, LayoutList, ShieldCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -7,6 +7,7 @@ import DashboardLayout from "@/components/DashboardLayout";
 import { ChatListItem } from "@/components/chat/ChatListItem";
 import { ChatSearchBar } from "@/components/chat/ChatSearchBar";
 import { useDMList } from "@/hooks/useDMList";
+import { Button } from "@/components/ui/button";
 import type { BatchLastMessage } from "@/types/chat";
 
 type Tab = "all" | "admin_dm";
@@ -18,6 +19,21 @@ interface Batch {
   updated_at: string | null;
 }
 
+interface AdminProfile {
+  user_id: string;
+  full_name: string;
+}
+
+// Fix #25: debounce hook
+function useDebounce<T>(value: T, delay = 300): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(t);
+  }, [value, delay]);
+  return debounced;
+}
+
 export default function StudentChatHub() {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<Tab>("all");
@@ -27,7 +43,23 @@ export default function StudentChatHub() {
   const [instituteName, setInstituteName] = useState("");
   const [batches, setBatches] = useState<Batch[]>([]);
   const [batchLastMsgs, setBatchLastMsgs] = useState<Record<string, BatchLastMessage>>({});
+  // Fix #13: fetch actual admin name
+  const [adminProfile, setAdminProfile] = useState<AdminProfile | null>(null);
   const [pageLoading, setPageLoading] = useState(true);
+  const [startingDM, setStartingDM] = useState(false);
+
+  // Fix #25: debounced search
+  const debouncedSearch = useDebounce(search, 250);
+
+  // Fix #9: extract fetchBatchLastMsgs so visibility handler can call it
+  const fetchBatchLastMsgs = useCallback(async (ic: string) => {
+    const { data: blm } = await supabase.rpc("get_batch_last_messages", {
+      p_institute_code: ic,
+    });
+    const map: Record<string, BatchLastMessage> = {};
+    (blm || []).forEach((row: BatchLastMessage) => { map[row.batch_id] = row; });
+    setBatchLastMsgs(map);
+  }, []);
 
   useEffect(() => {
     const init = async () => {
@@ -70,19 +102,32 @@ export default function StudentChatHub() {
         setBatches(batchData || []);
       }
 
-      const { data: blm } = await supabase.rpc("get_batch_last_messages", {
-        p_institute_code: ic,
-      });
-      const blmMap: Record<string, BatchLastMessage> = {};
-      (blm || []).forEach((row: BatchLastMessage) => {
-        blmMap[row.batch_id] = row;
-      });
-      setBatchLastMsgs(blmMap);
+      await fetchBatchLastMsgs(ic);
+
+      // Fix #13: fetch admin profile for real name
+      const { data: admin } = await supabase
+        .from("profiles")
+        .select("user_id, full_name")
+        .eq("institute_code", ic)
+        .eq("role", "admin")
+        .limit(1)
+        .single();
+      if (admin) setAdminProfile(admin);
 
       setPageLoading(false);
     };
     init();
-  }, []);
+  }, [fetchBatchLastMsgs]);
+
+  // Fix #9: refetch on page visibility change (e.g., navigating back from DM)
+  useEffect(() => {
+    if (!instituteCode) return;
+    const handleVis = () => {
+      if (document.visibilityState === "visible") fetchBatchLastMsgs(instituteCode);
+    };
+    document.addEventListener("visibilitychange", handleVis);
+    return () => document.removeEventListener("visibilitychange", handleVis);
+  }, [instituteCode, fetchBatchLastMsgs]);
 
   const { conversations } = useDMList({
     currentUserId,
@@ -90,21 +135,34 @@ export default function StudentChatHub() {
     instituteCode,
   });
 
-  const q = search.toLowerCase();
+  // Fix #3: Student can initiate DM with admin
+  const startAdminDM = async () => {
+    if (!adminProfile || !currentUserId || !instituteCode) return;
+    setStartingDM(true);
+    const { data, error } = await supabase.rpc("get_or_create_dm_conversation", {
+      p_admin_id: adminProfile.user_id,
+      p_other_user_id: currentUserId,
+      p_dm_type: "admin_student",
+      p_institute_code: instituteCode,
+    });
+    setStartingDM(false);
+    if (error || !data) {
+      console.error("[startAdminDM]", error);
+      return;
+    }
+    navigate(`/dm/${data}`);
+  };
+
+  const q = debouncedSearch.toLowerCase();
   const filteredBatches = batches.filter(
     (b) => b.name.toLowerCase().includes(q) || b.course.toLowerCase().includes(q)
   );
 
   const allThreads = useMemo(() => {
     type Thread = {
-      key: string;
-      name: string;
-      subtitle: string;
-      lastMessage: string | null;
-      lastMessageAt: string | null;
-      unreadCount: number;
-      onClick: () => void;
-      isGroup: boolean;
+      key: string; name: string; subtitle: string;
+      lastMessage: string | null; lastMessageAt: string | null;
+      unreadCount: number; onClick: () => void; isGroup: boolean;
     };
     const threads: Thread[] = [];
 
@@ -125,7 +183,7 @@ export default function StudentChatHub() {
     conversations.forEach((c) => {
       threads.push({
         key: `dm-${c.id}`,
-        name: "Admin",
+        name: adminProfile?.full_name ?? "Admin", // Fix #13: real admin name
         subtitle: "Private Message",
         lastMessage: c.last_message_preview,
         lastMessageAt: c.last_message_at,
@@ -147,7 +205,7 @@ export default function StudentChatHub() {
           t.name.toLowerCase().includes(q) ||
           (t.lastMessage ?? "").toLowerCase().includes(q)
       );
-  }, [batches, batchLastMsgs, conversations, navigate, q]);
+  }, [batches, batchLastMsgs, conversations, adminProfile, navigate, q]);
 
   if (pageLoading) {
     return (
@@ -202,7 +260,7 @@ export default function StudentChatHub() {
                 <EmptyState
                   icon={MessageSquare}
                   message={
-                    search
+                    debouncedSearch
                       ? "No conversations match your search."
                       : "Join a batch to see your group chats here."
                   }
@@ -227,15 +285,31 @@ export default function StudentChatHub() {
           {activeTab === "admin_dm" && (
             <>
               {conversations.length === 0 ? (
-                <EmptyState
-                  icon={ShieldCheck}
-                  message="No private messages from your admin yet."
-                />
+                <div className="flex flex-col items-center justify-center py-20 text-center px-6">
+                  <div className="w-14 h-14 rounded-full bg-muted flex items-center justify-center mb-4">
+                    <ShieldCheck className="w-6 h-6 text-muted-foreground opacity-60" />
+                  </div>
+                  <p className="text-sm text-muted-foreground max-w-xs mb-4">
+                    No private messages yet.{adminProfile ? " Send the first message to your admin." : ""}
+                  </p>
+                  {/* Fix #3: Student can now initiate DM */}
+                  {adminProfile && (
+                    <Button
+                      onClick={startAdminDM}
+                      disabled={startingDM}
+                      size="sm"
+                      className="gradient-hero text-white border-0"
+                    >
+                      {startingDM ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+                      Message {adminProfile.full_name}
+                    </Button>
+                  )}
+                </div>
               ) : (
                 conversations.map((c) => (
                   <ChatListItem
                     key={c.id}
-                    name="Admin"
+                    name={adminProfile?.full_name ?? "Admin"} // Fix #13: real name
                     subtitle="Private Message"
                     lastMessage={c.last_message_preview}
                     lastMessageAt={c.last_message_at}
@@ -252,13 +326,7 @@ export default function StudentChatHub() {
   );
 }
 
-function EmptyState({
-  icon: Icon,
-  message,
-}: {
-  icon: React.ElementType;
-  message: string;
-}) {
+function EmptyState({ icon: Icon, message }: { icon: React.ElementType; message: string }) {
   return (
     <div className="flex flex-col items-center justify-center py-20 text-center px-6">
       <div className="w-14 h-14 rounded-full bg-muted flex items-center justify-center mb-4">
