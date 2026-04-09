@@ -307,6 +307,117 @@ export type Database = {
         }
         Relationships: []
       }
+      direct_conversations: {
+        Row: {
+          admin_id: string
+          admin_unread_count: number
+          created_at: string
+          dm_type: Database["public"]["Enums"]["dm_type"]
+          id: string
+          institute_code: string
+          last_message_at: string | null
+          last_message_preview: string | null
+          other_user_id: string
+          other_user_unread_count: number
+          updated_at: string
+        }
+        Insert: {
+          admin_id: string
+          admin_unread_count?: number
+          created_at?: string
+          dm_type: Database["public"]["Enums"]["dm_type"]
+          id?: string
+          institute_code: string
+          last_message_at?: string | null
+          last_message_preview?: string | null
+          other_user_id: string
+          other_user_unread_count?: number
+          updated_at?: string
+        }
+        Update: {
+          admin_id?: string
+          admin_unread_count?: number
+          created_at?: string
+          dm_type?: Database["public"]["Enums"]["dm_type"]
+          id?: string
+          institute_code?: string
+          last_message_at?: string | null
+          last_message_preview?: string | null
+          other_user_id?: string
+          other_user_unread_count?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      direct_messages: {
+        Row: {
+          conversation_id: string
+          created_at: string
+          file_name: string | null
+          file_type: string | null
+          file_url: string | null
+          id: string
+          institute_code: string
+          is_deleted: boolean
+          is_edited: boolean
+          message: string
+          reactions: Json
+          reply_to_id: string | null
+          sender_id: string
+          sender_name: string
+          sender_role: string
+        }
+        Insert: {
+          conversation_id: string
+          created_at?: string
+          file_name?: string | null
+          file_type?: string | null
+          file_url?: string | null
+          id?: string
+          institute_code: string
+          is_deleted?: boolean
+          is_edited?: boolean
+          message?: string
+          reactions?: Json
+          reply_to_id?: string | null
+          sender_id: string
+          sender_name: string
+          sender_role: string
+        }
+        Update: {
+          conversation_id?: string
+          created_at?: string
+          file_name?: string | null
+          file_type?: string | null
+          file_url?: string | null
+          id?: string
+          institute_code?: string
+          is_deleted?: boolean
+          is_edited?: boolean
+          message?: string
+          reactions?: Json
+          reply_to_id?: string | null
+          sender_id?: string
+          sender_name?: string
+          sender_role?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "direct_messages_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "direct_conversations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "direct_messages_reply_to_id_fkey"
+            columns: ["reply_to_id"]
+            isOneToOne: false
+            referencedRelation: "direct_messages"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       fees: {
         Row: {
           amount: number
@@ -827,8 +938,26 @@ export type Database = {
         Args: { _institute_code: string; _role: string }
         Returns: boolean
       }
+      get_batch_last_messages: {
+        Args: { p_institute_code: string }
+        Returns: {
+          batch_id: string
+          last_message: string
+          last_message_at: string
+          sender_name: string
+        }[]
+      }
       get_my_child_user_id: { Args: never; Returns: string }
       get_my_institute_code: { Args: never; Returns: string }
+      get_or_create_dm_conversation: {
+        Args: {
+          p_admin_id: string
+          p_dm_type: Database["public"]["Enums"]["dm_type"]
+          p_institute_code: string
+          p_other_user_id: string
+        }
+        Returns: string
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
@@ -836,6 +965,7 @@ export type Database = {
         }
         Returns: boolean
       }
+      mark_dm_read: { Args: { p_conversation_id: string }; Returns: undefined }
     }
     Enums: {
       app_role:
@@ -845,6 +975,7 @@ export type Database = {
         | "student"
         | "parent"
         | "app_owner"
+      dm_type: "admin_teacher" | "admin_student"
       institute_status: "pending" | "approved" | "rejected"
       user_status: "pending" | "approved" | "rejected" | "active"
     }
@@ -982,6 +1113,7 @@ export const Constants = {
         "parent",
         "app_owner",
       ],
+      dm_type: ["admin_teacher", "admin_student"],
       institute_status: ["pending", "approved", "rejected"],
       user_status: ["pending", "approved", "rejected", "active"],
     },
