@@ -76,23 +76,25 @@ export default function StudentChatHub() {
       const ic = profile.institute_code;
       setInstituteCode(ic);
 
-      const { data: inst } = await supabase
-        .from("institutes")
-        .select("institute_name, city")
-        .eq("institute_code", ic)
-        .single();
-      if (inst) {
-        setInstituteName(`${inst.institute_name}${inst.city ? ", " + inst.city : ""}`);
+      // Run all independent queries in parallel
+      const [instRes, enrollRes, blmRes, adminRes] = await Promise.all([
+        supabase.from("institutes").select("institute_name, city").eq("institute_code", ic).single(),
+        supabase.from("students_batches").select("batch_id").eq("student_id", user.id),
+        supabase.rpc("get_batch_last_messages", { p_institute_code: ic }),
+        supabase.from("profiles").select("user_id, full_name").eq("institute_code", ic).eq("role", "admin").limit(1).single(),
+      ]);
+
+      if (instRes.data) {
+        setInstituteName(`${instRes.data.institute_name}${instRes.data.city ? ", " + instRes.data.city : ""}`);
       }
+      const map: Record<string, BatchLastMessage> = {};
+      (blmRes.data || []).forEach((row: BatchLastMessage) => { map[row.batch_id] = row; });
+      setBatchLastMsgs(map);
+      if (adminRes.data) setAdminProfile(adminRes.data);
 
-      // Student's enrolled batches
-      const { data: enrollments } = await supabase
-        .from("students_batches")
-        .select("batch_id")
-        .eq("student_id", user.id);
-
-      if (enrollments && enrollments.length > 0) {
-        const batchIds = enrollments.map((e) => e.batch_id);
+      // Fetch batch details if enrolled
+      if (enrollRes.data && enrollRes.data.length > 0) {
+        const batchIds = enrollRes.data.map((e) => e.batch_id);
         const { data: batchData } = await supabase
           .from("batches")
           .select("id, name, course, updated_at")
@@ -101,18 +103,6 @@ export default function StudentChatHub() {
           .order("updated_at", { ascending: false });
         setBatches(batchData || []);
       }
-
-      await fetchBatchLastMsgs(ic);
-
-      // Fix #13: fetch admin profile for real name
-      const { data: admin } = await supabase
-        .from("profiles")
-        .select("user_id, full_name")
-        .eq("institute_code", ic)
-        .eq("role", "admin")
-        .limit(1)
-        .single();
-      if (admin) setAdminProfile(admin);
 
       setPageLoading(false);
     };
