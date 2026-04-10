@@ -54,8 +54,14 @@ export function useDirectMessages({
   useEffect(() => {
     if (!conversationId) return;
 
+    // Remove any previous channel before creating a new one
+    if (channelRef.current) {
+      supabase.removeChannel(channelRef.current);
+      channelRef.current = null;
+    }
+
     const channel = supabase
-      .channel(`dm-${conversationId}`)
+      .channel(`dm-${conversationId}-${Date.now()}`)
       .on(
         "postgres_changes",
         {

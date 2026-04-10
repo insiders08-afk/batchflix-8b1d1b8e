@@ -4,9 +4,10 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { User, Building2, Lock, Loader2, Save, Mail, IdCard, GraduationCap, Hash } from "lucide-react";
+import { User, Building2, Lock, Loader2, Save, Mail, IdCard, GraduationCap, Hash, LogOut } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { useNavigate } from "react-router-dom";
 
 function ReadOnlyField({ label, value, icon, mono = false }: { label: string; value: string; icon?: React.ReactNode; mono?: boolean }) {
   return (
@@ -22,6 +23,7 @@ function ReadOnlyField({ label, value, icon, mono = false }: { label: string; va
 }
 
 export default function StudentSettings() {
+  const navigate = useNavigate();
   const { toast } = useToast();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -213,6 +215,22 @@ export default function StudentSettings() {
             <ReadOnlyField label="Institute Name" value={instituteName} icon={<Building2 className="w-3.5 h-3.5" />} />
             <ReadOnlyField label="Institute Code" value={instituteCode} icon={<IdCard className="w-3.5 h-3.5" />} />
           </div>
+        </Card>
+
+        {/* Logout */}
+        <Card className="p-5 shadow-card border-border/50">
+          <Button
+            variant="outline"
+            className="w-full gap-2 text-destructive border-destructive/30 hover:bg-destructive/10"
+            onClick={async () => {
+              localStorage.removeItem("batchhub_active_institute");
+              await supabase.auth.signOut();
+              navigate("/");
+            }}
+          >
+            <LogOut className="w-4 h-4" />
+            Logout
+          </Button>
         </Card>
 
       </div>
