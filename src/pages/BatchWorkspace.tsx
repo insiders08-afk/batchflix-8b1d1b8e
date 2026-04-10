@@ -652,7 +652,7 @@ export default function BatchWorkspace() {
       let file_url: string | null = null;
       let file_name: string | null = null;
       if (dppFile) {
-        // NICE-05 fix: Enforce file size limit for DPP uploads
+        // Enforce file size limit for DPP uploads
         if (dppFile.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
           toast({ title: `File too large (max ${MAX_FILE_SIZE_MB} MB)`, variant: "destructive" });
           setSavingDpp(false);
@@ -667,17 +667,11 @@ export default function BatchWorkspace() {
           setSavingDpp(false);
           return;
         }
-        // Generate a signed URL since homework-files is private
-        const { data: signedData, error: signErr } = await supabase.storage
+        // B-26/B-27: Use public URL since homework-files bucket is public — no expiry
+        const { data: publicData } = supabase.storage
           .from("homework-files")
-          .createSignedUrl(path, 60 * 60 * 24 * 7); // 7 days
-        if (signErr || !signedData) {
-          console.error("[dpp-signed-url]", signErr);
-          toast({ title: "Failed to generate file URL", variant: "destructive" });
-          setSavingDpp(false);
-          return;
-        }
-        file_url = signedData.signedUrl;
+          .getPublicUrl(path);
+        file_url = publicData.publicUrl;
         file_name = dppFile.name;
       }
       const { error } = await supabase.from("homeworks").insert({
