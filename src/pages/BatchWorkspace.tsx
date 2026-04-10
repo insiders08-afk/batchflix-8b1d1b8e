@@ -49,6 +49,7 @@ import { useToast } from "@/hooks/use-toast";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { sendPushNotification, getBatchStudentIds } from "@/lib/pushNotifications";
+import { formatChatDate, getMessagePreview, timeAgo } from "@/lib/chatUtils";
 
 interface BatchInfo {
   id: string;
@@ -182,72 +183,77 @@ export default function BatchWorkspace() {
   useEffect(() => {
     if (!batchId) return;
     const init = async () => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) return;
-      setCurrentUserId(user.id);
+      try {
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+        if (!user) return;
+        setCurrentUserId(user.id);
 
-      // Phase 1: profile + batch info (needed for further queries)
-      const [profileRes, batchRes, countRes] = await Promise.all([
-        supabase.from("profiles").select("full_name, role").eq("user_id", user.id).single(),
-        supabase.from("batches").select("*").eq("id", batchId).single(),
-        supabase.from("students_batches").select("id", { count: "exact" }).eq("batch_id", batchId),
-      ]);
-
-      if (profileRes.data) {
-        setCurrentUserName(profileRes.data.full_name);
-        setCurrentUserRole(profileRes.data.role);
-      }
-      if (batchRes.data) setBatch(batchRes.data);
-      setStudentCount(countRes.count || 0);
-
-      // Phase 2: all remaining queries in parallel
-      const [msgsRes, enrollRes, annsRes, testRes, dppRes] = await Promise.all([
-        supabase.from("batch_messages").select("*").eq("batch_id", batchId).order("created_at", { ascending: true }).limit(100),
-        supabase.from("students_batches").select("student_id").eq("batch_id", batchId),
-        supabase.from("announcements").select("*").eq("batch_id", batchId).order("created_at", { ascending: false }),
-        supabase.from("test_scores").select("*").eq("batch_id", batchId).order("test_date", { ascending: false }),
-        supabase.from("homeworks").select("id, title, description, file_url, file_name, link_url, teacher_name, created_at").eq("batch_id", batchId).order("created_at", { ascending: false }),
-      ]);
-
-      if (msgsRes.data) {
-        setMessages(
-          msgsRes.data.map((m) => ({
-            ...m,
-            reactions: (m.reactions ?? {}) as Record<string, string[]>,
-            isSelf: m.sender_id === user.id,
-          })),
-        );
-      }
-
-      setAnnouncements(annsRes.data || []);
-      setTests(testRes.data || []);
-      setDppItems((dppRes.data || []).map((d) => ({ ...d, posted_by_name: d.teacher_name ?? "" })));
-
-      // Students + attendance
-      const enrollments = enrollRes.data;
-      if (enrollments && enrollments.length > 0) {
-        const ids = enrollments.map((e) => e.student_id);
-        const [studentProfilesRes, todayAttRes] = await Promise.all([
-          supabase.from("profiles").select("user_id, full_name").in("user_id", ids),
-          supabase.from("attendance").select("student_id, present").eq("batch_id", batchId).eq("date", new Date().toISOString().split("T")[0]).in("student_id", ids),
+        // Phase 1: profile + batch info (needed for further queries)
+        const [profileRes, batchRes, countRes] = await Promise.all([
+          supabase.from("profiles").select("full_name, role").eq("user_id", user.id).single(),
+          supabase.from("batches").select("*").eq("id", batchId).single(),
+          supabase.from("students_batches").select("id", { count: "exact" }).eq("batch_id", batchId),
         ]);
 
-        const mapped = (studentProfilesRes.data || []).map((s) => ({
-          id: s.user_id,
-          user_id: s.user_id,
-          full_name: s.full_name,
-        }));
-        setStudents(mapped);
+        if (profileRes.data) {
+          setCurrentUserName(profileRes.data.full_name);
+          setCurrentUserRole(profileRes.data.role);
+        }
+        if (batchRes.data) setBatch(batchRes.data);
+        setStudentCount(countRes.count || 0);
 
-        const attMap: Record<string, boolean> = {};
-        mapped.forEach((s) => { attMap[s.id] = false; });
-        (todayAttRes.data || []).forEach((a) => { attMap[a.student_id] = a.present; });
-        setAttendance(attMap);
+        // Phase 2: all remaining queries in parallel
+        const [msgsRes, enrollRes, annsRes, testRes, dppRes] = await Promise.all([
+          supabase.from("batch_messages").select("*").eq("batch_id", batchId).order("created_at", { ascending: true }).limit(100),
+          supabase.from("students_batches").select("student_id").eq("batch_id", batchId),
+          supabase.from("announcements").select("*").eq("batch_id", batchId).order("created_at", { ascending: false }),
+          supabase.from("test_scores").select("*").eq("batch_id", batchId).order("test_date", { ascending: false }),
+          supabase.from("homeworks").select("id, title, description, file_url, file_name, link_url, teacher_name, created_at").eq("batch_id", batchId).order("created_at", { ascending: false }),
+        ]);
+
+        if (msgsRes.data) {
+          setMessages(
+            msgsRes.data.map((m) => ({
+              ...m,
+              reactions: (m.reactions ?? {}) as Record<string, string[]>,
+              isSelf: m.sender_id === user.id,
+            })),
+          );
+        }
+
+        setAnnouncements(annsRes.data || []);
+        setTests(testRes.data || []);
+        setDppItems((dppRes.data || []).map((d) => ({ ...d, posted_by_name: d.teacher_name ?? "" })));
+
+        // Students + attendance
+        const enrollments = enrollRes.data;
+        if (enrollments && enrollments.length > 0) {
+          const ids = enrollments.map((e) => e.student_id);
+          const [studentProfilesRes, todayAttRes] = await Promise.all([
+            supabase.from("profiles").select("user_id, full_name").in("user_id", ids),
+            supabase.from("attendance").select("student_id, present").eq("batch_id", batchId).eq("date", new Date().toISOString().split("T")[0]).in("student_id", ids),
+          ]);
+
+          const mapped = (studentProfilesRes.data || []).map((s) => ({
+            id: s.user_id,
+            user_id: s.user_id,
+            full_name: s.full_name,
+          }));
+          setStudents(mapped);
+
+          const attMap: Record<string, boolean> = {};
+          mapped.forEach((s) => { attMap[s.id] = false; });
+          (todayAttRes.data || []).forEach((a) => { attMap[a.student_id] = a.present; });
+          setAttendance(attMap);
+        }
+      } catch (err) {
+        console.error("[BatchWorkspace] init error:", err);
+      } finally {
+        // B-21: Always stop loading even if a query fails
+        setLoading(false);
       }
-
-      setLoading(false);
     };
     init();
   }, [batchId]);
@@ -403,8 +409,7 @@ export default function BatchWorkspace() {
   }, [messages, scrollToBottom]);
 
   // ─── File upload helper ─────────────────────────────────────────────────────
-  // NOTE: chat-files bucket is now PRIVATE. We store the storage path in DB
-  // and generate signed URLs on the fly for display.
+  // B-2/B-3: chat-files bucket is PUBLIC — use getPublicUrl for permanent URLs
   const uploadChatFile = async (file: File): Promise<{ url: string; name: string; type: string } | null> => {
     if (!currentUserId) {
       console.error("[upload] No currentUserId");
@@ -421,16 +426,11 @@ export default function BatchWorkspace() {
       toast({ title: "Upload error", description: error.message, variant: "destructive" });
       return null;
     }
-    // Generate a signed URL valid for 7 days so the link works even from private bucket
-    const { data: signedData, error: signErr } = await supabase.storage
+    // B-2: Use public URL since chat-files bucket is public — no expiry
+    const { data: publicData } = supabase.storage
       .from("chat-files")
-      .createSignedUrl(path, 60 * 60 * 24 * 7); // 7 days
-    if (signErr || !signedData) {
-      console.error("[signed-url]", signErr);
-      toast({ title: "Failed to generate file link", description: signErr?.message, variant: "destructive" });
-      return null;
-    }
-    return { url: signedData.signedUrl, name: file.name, type: mimeType };
+      .getPublicUrl(path);
+    return { url: publicData.publicUrl, name: file.name, type: mimeType };
   };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -530,6 +530,7 @@ export default function BatchWorkspace() {
     setSendingMsg(false);
   };
 
+  // B-18: Add reaction rollback on failure (matching DM hook pattern)
   const handleReaction = async (messageId: string, emoji: string) => {
     const msg = messages.find((m) => m.id === messageId);
     if (!msg) return;
@@ -542,7 +543,7 @@ export default function BatchWorkspace() {
 
     const newReactions = { ...currentReactions, [emoji]: newUsers };
 
-    // Update local state first for instant feedback
+    // Optimistic update
     setMessages((prev) => prev.map((m) => (m.id === messageId ? { ...m, reactions: newReactions } : m)));
 
     const { error } = await supabase
@@ -552,6 +553,8 @@ export default function BatchWorkspace() {
 
     if (error) {
       toast({ title: "Error updating reaction", variant: "destructive" });
+      // B-18: Revert on failure
+      setMessages((prev) => prev.map((m) => (m.id === messageId ? { ...m, reactions: currentReactions } : m)));
     }
   };
 
@@ -649,7 +652,7 @@ export default function BatchWorkspace() {
       let file_url: string | null = null;
       let file_name: string | null = null;
       if (dppFile) {
-        // NICE-05 fix: Enforce file size limit for DPP uploads
+        // Enforce file size limit for DPP uploads
         if (dppFile.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
           toast({ title: `File too large (max ${MAX_FILE_SIZE_MB} MB)`, variant: "destructive" });
           setSavingDpp(false);
@@ -664,17 +667,11 @@ export default function BatchWorkspace() {
           setSavingDpp(false);
           return;
         }
-        // Generate a signed URL since homework-files is private
-        const { data: signedData, error: signErr } = await supabase.storage
+        // B-26/B-27: Use public URL since homework-files bucket is public — no expiry
+        const { data: publicData } = supabase.storage
           .from("homework-files")
-          .createSignedUrl(path, 60 * 60 * 24 * 7); // 7 days
-        if (signErr || !signedData) {
-          console.error("[dpp-signed-url]", signErr);
-          toast({ title: "Failed to generate file URL", variant: "destructive" });
-          setSavingDpp(false);
-          return;
-        }
-        file_url = signedData.signedUrl;
+          .getPublicUrl(path);
+        file_url = publicData.publicUrl;
         file_name = dppFile.name;
       }
       const { error } = await supabase.from("homeworks").insert({
@@ -710,31 +707,7 @@ export default function BatchWorkspace() {
 
   const presentCount = Object.values(attendance).filter(Boolean).length;
 
-  const formatChatDate = (dateStr: string) => {
-    const date = new Date(dateStr);
-    const now = new Date();
-    const isToday = date.toDateString() === now.toDateString();
-    const yesterday = new Date(now);
-    yesterday.setDate(now.getDate() - 1);
-    const isYesterday = date.toDateString() === yesterday.toDateString();
-
-    const timeStr = date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-
-    if (isToday) return timeStr;
-    if (isYesterday) return `${timeStr} Yesterday`;
-
-    const day = date.getDate();
-    const month = date.toLocaleString("en-IN", { month: "short" }).toUpperCase();
-    return `${timeStr} ${day} ${month}`;
-  };
-
-  const timeAgo = (dateStr: string) => {
-    const diff = Date.now() - new Date(dateStr).getTime();
-    const hours = Math.floor(diff / 3600000);
-    if (hours < 1) return "Just now";
-    if (hours < 24) return `${hours}h ago`;
-    return `${Math.floor(hours / 24)}d ago`;
-  };
+  // B-29: formatChatDate and timeAgo are now imported from chatUtils
 
   const isImage = (type: string | null | undefined) => type?.startsWith("image/");
   const isPDF = (type: string | null | undefined) => type === "application/pdf";
@@ -831,8 +804,8 @@ export default function BatchWorkspace() {
                     key={msg.id}
                     drag="x"
                     dragSnapToOrigin={true}
-                    dragConstraints={msg.isSelf ? { left: 0, right: 100 } : { left: -100, right: 0 }}
-                    dragElastic={0.4}
+                    dragConstraints={msg.isSelf ? { left: 0, right: 70 } : { left: -70, right: 0 }}
+                    dragElastic={0.15}
                     onDragEnd={(_, info) => {
                       if (msg.isSelf && info.offset.x > 60) {
                         setReplyingTo(msg);
@@ -910,7 +883,7 @@ export default function BatchWorkspace() {
                                 msg.isSelf ? "border-white/40 text-white/90" : "border-primary/40 text-muted-foreground",
                               )}
                             >
-                              {messages.find((m) => m.id === msg.reply_to_id)?.message || "Original message"}
+                              {getMessagePreview(messages.find((m) => m.id === msg.reply_to_id) || {})}
                             </div>
                           )}
                       {/* File attachment */}
@@ -951,14 +924,9 @@ export default function BatchWorkspace() {
                       )}
                         </div>
                       )}
-                      {/* Message text */}
+                      {/* B-16: Removed duplicate (edited) indicator — only shown in timestamp row */}
                       {msg.message && msg.message !== msg.file_name && (
-                        <span>
-                          {msg.message}
-                          {msg.is_edited && (
-                            <span className="ml-1.5 text-[10px] opacity-60 italic">(edited)</span>
-                          )}
-                        </span>
+                        <span>{msg.message}</span>
                       )}
                         </>
                       )}
@@ -1048,7 +1016,7 @@ export default function BatchWorkspace() {
                           </h4>
                           <div className="space-y-1.5 pl-2 border-l-2 border-border/50">
                             {names.map((name, i) => (
-                              <p key={i} className="text-sm">{name}</p>
+                              <p key={userIds[i] || i} className="text-sm">{name}</p>
                             ))}
                           </div>
                         </div>
@@ -1087,7 +1055,7 @@ export default function BatchWorkspace() {
                   <p className="text-[10px] font-bold text-primary uppercase tracking-wider">
                     Replying to {replyingTo.sender_name}
                   </p>
-                  <p className="text-sm text-muted-foreground truncate">{replyingTo.message}</p>
+                  <p className="text-sm text-muted-foreground truncate">{getMessagePreview(replyingTo)}</p>
                 </div>
                 <Button
                   variant="ghost"
@@ -1100,7 +1068,24 @@ export default function BatchWorkspace() {
               </div>
             )}
 
-            {/* Attached file preview */}
+            {/* B-28: Editing context bar */}
+            {editingMessage && (
+              <div className="px-4 py-2 bg-amber-500/10 border-t border-amber-500/20 flex items-center justify-between">
+                <div className="flex-1 min-w-0 border-l-2 border-amber-500 pl-3 py-1">
+                  <p className="text-[10px] font-bold text-amber-600 uppercase tracking-wider">Editing message</p>
+                  <p className="text-sm text-muted-foreground truncate">{editingMessage.message}</p>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="w-8 h-8 rounded-full"
+                  onClick={() => { setEditingMessage(null); setChatInput(""); }}
+                >
+                  <X className="w-4 h-4" />
+                </Button>
+              </div>
+            )}
+
             {attachedFile && (
               <div className="px-3 py-2 bg-muted/50 border-t border-border/40 flex items-center gap-2">
                 <div className="flex items-center gap-2 flex-1 min-w-0 bg-card border border-border/50 rounded-lg px-3 py-1.5">
