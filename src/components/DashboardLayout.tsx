@@ -268,8 +268,8 @@ export default function DashboardLayout({ children, title, role = "admin" }: Das
         })}
       </nav>
 
-      {/* Footer */}
-      <div className="px-2 pb-4 border-t border-sidebar-border pt-4">
+      {/* Footer — extra bottom padding on mobile so logout isn't hidden behind BottomNav */}
+      <div className={cn("px-2 pb-4 border-t border-sidebar-border pt-4", showBottomNav && "pb-24 lg:pb-4")}>
         {!collapsed && (
           <div className="flex items-center gap-3 px-3 mb-3">
             <div className="w-8 h-8 rounded-full gradient-hero flex items-center justify-center text-white text-xs font-bold">

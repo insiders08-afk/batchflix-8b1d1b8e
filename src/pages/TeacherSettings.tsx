@@ -4,9 +4,10 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { User, Building2, Lock, Loader2, Save, Mail, IdCard, Hash } from "lucide-react";
+import { User, Building2, Lock, Loader2, Save, Mail, IdCard, Hash, LogOut } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { useNavigate } from "react-router-dom";
 
 function ReadOnlyField({ label, value, icon }: { label: string; value: string; icon?: React.ReactNode }) {
   return (
