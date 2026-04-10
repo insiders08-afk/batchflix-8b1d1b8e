@@ -54,52 +54,24 @@ export default function AdminChatHub() {
       const ic = profile.institute_code;
       setInstituteCode(ic);
 
-      // Institute name
-      const { data: inst } = await supabase
-        .from("institutes")
-        .select("institute_name, city")
-        .eq("institute_code", ic)
-        .single();
-      if (inst) {
-        setInstituteName(`${inst.institute_name}${inst.city ? ", " + inst.city : ""}`);
+      // Run all independent queries in parallel
+      const [instRes, batchRes, blmRes, teacherRes, studentRes] = await Promise.all([
+        supabase.from("institutes").select("institute_name, city").eq("institute_code", ic).single(),
+        supabase.from("batches").select("id, name, course, teacher_name, updated_at").eq("institute_code", ic).eq("is_active", true).order("updated_at", { ascending: false }),
+        supabase.rpc("get_batch_last_messages", { p_institute_code: ic }),
+        supabase.from("profiles").select("user_id, full_name, role").eq("institute_code", ic).eq("role", "teacher").order("full_name"),
+        supabase.from("profiles").select("user_id, full_name, role").eq("institute_code", ic).eq("role", "student").order("full_name"),
+      ]);
+
+      if (instRes.data) {
+        setInstituteName(`${instRes.data.institute_name}${instRes.data.city ? ", " + instRes.data.city : ""}`);
       }
-
-      // Batches
-      const { data: batchData } = await supabase
-        .from("batches")
-        .select("id, name, course, teacher_name, updated_at")
-        .eq("institute_code", ic)
-        .eq("is_active", true)
-        .order("updated_at", { ascending: false });
-      setBatches(batchData || []);
-
-      // Batch last messages (RPC)
-      const { data: blm } = await supabase.rpc("get_batch_last_messages", {
-        p_institute_code: ic,
-      });
+      setBatches(batchRes.data || []);
       const blmMap: Record<string, BatchLastMessage> = {};
-      (blm || []).forEach((row: BatchLastMessage) => {
-        blmMap[row.batch_id] = row;
-      });
+      (blmRes.data || []).forEach((row: BatchLastMessage) => { blmMap[row.batch_id] = row; });
       setBatchLastMsgs(blmMap);
-
-      // Teachers
-      const { data: teacherData } = await supabase
-        .from("profiles")
-        .select("user_id, full_name, role")
-        .eq("institute_code", ic)
-        .eq("role", "teacher")
-        .order("full_name");
-      setTeachers(teacherData || []);
-
-      // Students
-      const { data: studentData } = await supabase
-        .from("profiles")
-        .select("user_id, full_name, role")
-        .eq("institute_code", ic)
-        .eq("role", "student")
-        .order("full_name");
-      setStudents(studentData || []);
+      setTeachers(teacherRes.data || []);
+      setStudents(studentRes.data || []);
 
       setPageLoading(false);
     };

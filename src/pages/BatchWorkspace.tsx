@@ -188,38 +188,32 @@ export default function BatchWorkspace() {
       if (!user) return;
       setCurrentUserId(user.id);
 
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("full_name, role")
-        .eq("user_id", user.id)
-        .single();
+      // Phase 1: profile + batch info (needed for further queries)
+      const [profileRes, batchRes, countRes] = await Promise.all([
+        supabase.from("profiles").select("full_name, role").eq("user_id", user.id).single(),
+        supabase.from("batches").select("*").eq("id", batchId).single(),
+        supabase.from("students_batches").select("id", { count: "exact" }).eq("batch_id", batchId),
+      ]);
 
-      if (profile) {
-        setCurrentUserName(profile.full_name);
-        setCurrentUserRole(profile.role);
+      if (profileRes.data) {
+        setCurrentUserName(profileRes.data.full_name);
+        setCurrentUserRole(profileRes.data.role);
       }
+      if (batchRes.data) setBatch(batchRes.data);
+      setStudentCount(countRes.count || 0);
 
-      // Batch info
-      const { data: batchData } = await supabase.from("batches").select("*").eq("id", batchId).single();
-      if (batchData) setBatch(batchData);
+      // Phase 2: all remaining queries in parallel
+      const [msgsRes, enrollRes, annsRes, testRes, dppRes] = await Promise.all([
+        supabase.from("batch_messages").select("*").eq("batch_id", batchId).order("created_at", { ascending: true }).limit(100),
+        supabase.from("students_batches").select("student_id").eq("batch_id", batchId),
+        supabase.from("announcements").select("*").eq("batch_id", batchId).order("created_at", { ascending: false }),
+        supabase.from("test_scores").select("*").eq("batch_id", batchId).order("test_date", { ascending: false }),
+        supabase.from("homeworks").select("id, title, description, file_url, file_name, link_url, teacher_name, created_at").eq("batch_id", batchId).order("created_at", { ascending: false }),
+      ]);
 
-      // Student count
-      const { count } = await supabase
-        .from("students_batches")
-        .select("id", { count: "exact" })
-        .eq("batch_id", batchId);
-      setStudentCount(count || 0);
-
-      // Chat messages — fetch oldest-first for chronological display
-      const { data: msgs } = await supabase
-        .from("batch_messages")
-        .select("*")
-        .eq("batch_id", batchId)
-        .order("created_at", { ascending: true })
-        .limit(100);
-      if (msgs) {
+      if (msgsRes.data) {
         setMessages(
-          msgs.map((m) => ({
+          msgsRes.data.map((m) => ({
             ...m,
             reactions: (m.reactions ?? {}) as Record<string, string[]>,
             isSelf: m.sender_id === user.id,
@@ -227,68 +221,31 @@ export default function BatchWorkspace() {
         );
       }
 
-      // Enrolled students
-      const { data: enrollments } = await supabase
-        .from("students_batches")
-        .select("student_id")
-        .eq("batch_id", batchId);
+      setAnnouncements(annsRes.data || []);
+      setTests(testRes.data || []);
+      setDppItems((dppRes.data || []).map((d) => ({ ...d, posted_by_name: d.teacher_name ?? "" })));
 
+      // Students + attendance
+      const enrollments = enrollRes.data;
       if (enrollments && enrollments.length > 0) {
         const ids = enrollments.map((e) => e.student_id);
-        const { data: studentProfiles } = await supabase
-          .from("profiles")
-          .select("user_id, full_name")
-          .in("user_id", ids);
-        const mapped = (studentProfiles || []).map((s) => ({
+        const [studentProfilesRes, todayAttRes] = await Promise.all([
+          supabase.from("profiles").select("user_id, full_name").in("user_id", ids),
+          supabase.from("attendance").select("student_id, present").eq("batch_id", batchId).eq("date", new Date().toISOString().split("T")[0]).in("student_id", ids),
+        ]);
+
+        const mapped = (studentProfilesRes.data || []).map((s) => ({
           id: s.user_id,
           user_id: s.user_id,
           full_name: s.full_name,
         }));
         setStudents(mapped);
 
-        // LIMIT-07 fix: Load existing attendance for today instead of defaulting to all absent
-        const today = new Date().toISOString().split("T")[0];
-        const { data: todayAtt } = await supabase
-          .from("attendance")
-          .select("student_id, present")
-          .eq("batch_id", batchId)
-          .eq("date", today)
-          .in("student_id", ids);
-
         const attMap: Record<string, boolean> = {};
-        // Default all to false, then override with DB records
-        mapped.forEach((s) => {
-          attMap[s.id] = false;
-        });
-        (todayAtt || []).forEach((a) => {
-          attMap[a.student_id] = a.present;
-        });
+        mapped.forEach((s) => { attMap[s.id] = false; });
+        (todayAttRes.data || []).forEach((a) => { attMap[a.student_id] = a.present; });
         setAttendance(attMap);
       }
-
-      // Announcements
-      const { data: anns } = await supabase
-        .from("announcements")
-        .select("*")
-        .eq("batch_id", batchId)
-        .order("created_at", { ascending: false });
-      setAnnouncements(anns || []);
-
-      // Tests
-      const { data: testData } = await supabase
-        .from("test_scores")
-        .select("*")
-        .eq("batch_id", batchId)
-        .order("test_date", { ascending: false });
-      setTests(testData || []);
-
-      // DPP / Homework
-      const { data: dppData } = await supabase
-        .from("homeworks")
-        .select("id, title, description, file_url, file_name, link_url, teacher_name, created_at")
-        .eq("batch_id", batchId)
-        .order("created_at", { ascending: false });
-      setDppItems((dppData || []).map((d) => ({ ...d, posted_by_name: d.teacher_name ?? "" })));
 
       setLoading(false);
     };

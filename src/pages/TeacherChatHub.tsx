@@ -77,36 +77,22 @@ export default function TeacherChatHub() {
       const ic = profile.institute_code;
       setInstituteCode(ic);
 
-      const { data: inst } = await supabase
-        .from("institutes")
-        .select("institute_name, city")
-        .eq("institute_code", ic)
-        .single();
-      if (inst) {
-        setInstituteName(`${inst.institute_name}${inst.city ? ", " + inst.city : ""}`);
+      // Run all independent queries in parallel
+      const [instRes, batchRes, blmRes, adminRes] = await Promise.all([
+        supabase.from("institutes").select("institute_name, city").eq("institute_code", ic).single(),
+        supabase.from("batches").select("id, name, course, teacher_name, updated_at").eq("institute_code", ic).eq("teacher_id", user.id).eq("is_active", true).order("updated_at", { ascending: false }),
+        supabase.rpc("get_batch_last_messages", { p_institute_code: ic }),
+        supabase.from("profiles").select("user_id, full_name").eq("institute_code", ic).eq("role", "admin").limit(1).single(),
+      ]);
+
+      if (instRes.data) {
+        setInstituteName(`${instRes.data.institute_name}${instRes.data.city ? ", " + instRes.data.city : ""}`);
       }
-
-      // Teacher's assigned batches
-      const { data: batchData } = await supabase
-        .from("batches")
-        .select("id, name, course, teacher_name, updated_at")
-        .eq("institute_code", ic)
-        .eq("teacher_id", user.id)
-        .eq("is_active", true)
-        .order("updated_at", { ascending: false });
-      setBatches(batchData || []);
-
-      await fetchBatchLastMsgs(ic);
-
-      // Fix #13: fetch admin profile so we can show real name
-      const { data: admin } = await supabase
-        .from("profiles")
-        .select("user_id, full_name")
-        .eq("institute_code", ic)
-        .eq("role", "admin")
-        .limit(1)
-        .single();
-      if (admin) setAdminProfile(admin);
+      setBatches(batchRes.data || []);
+      const map: Record<string, BatchLastMessage> = {};
+      (blmRes.data || []).forEach((row: BatchLastMessage) => { map[row.batch_id] = row; });
+      setBatchLastMsgs(map);
+      if (adminRes.data) setAdminProfile(adminRes.data);
 
       setPageLoading(false);
     };
