@@ -215,6 +215,22 @@ export default function TeacherSettings() {
           </div>
         </Card>
 
+        {/* Logout */}
+        <Card className="p-5 shadow-card border-border/50">
+          <Button
+            variant="outline"
+            className="w-full gap-2 text-destructive border-destructive/30 hover:bg-destructive/10"
+            onClick={async () => {
+              localStorage.removeItem("batchhub_active_institute");
+              await supabase.auth.signOut();
+              navigate("/");
+            }}
+          >
+            <LogOut className="w-4 h-4" />
+            Logout
+          </Button>
+        </Card>
+
       </div>
     </DashboardLayout>
   );
