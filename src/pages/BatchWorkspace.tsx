@@ -123,6 +123,7 @@ export default function BatchWorkspace() {
   const [currentUserRole, setCurrentUserRole] = useState<string>("student");
   const [studentCount, setStudentCount] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [chatChannelStatus, setChatChannelStatus] = useState<string>("CONNECTING");
 
   // Chat
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -302,7 +303,9 @@ export default function BatchWorkspace() {
           );
         },
       )
-      .subscribe();
+      .subscribe((status) => {
+        setChatChannelStatus(status);
+      });
     return () => {
       supabase.removeChannel(channel);
     };
@@ -750,9 +753,9 @@ export default function BatchWorkspace() {
         <Badge variant="secondary" className="text-xs hidden sm:flex">
           {batch.course}
         </Badge>
-        <div className="flex items-center gap-1 text-xs text-success">
-          <span className="w-1.5 h-1.5 rounded-full bg-success animate-pulse" />
-          Live
+        <div className={`flex items-center gap-1 text-xs ${chatChannelStatus === "SUBSCRIBED" ? "text-success" : "text-warning"}`}>
+          <span className={`w-1.5 h-1.5 rounded-full ${chatChannelStatus === "SUBSCRIBED" ? "bg-success animate-pulse" : "bg-warning"}`} />
+          {chatChannelStatus === "SUBSCRIBED" ? "Live" : "Connecting…"}
         </div>
       </header>
 
@@ -1591,7 +1594,11 @@ export default function BatchWorkspace() {
                   <div className="p-8 text-center text-muted-foreground text-sm">No test scores yet to rank.</div>
                 ) : (
                   (() => {
+                    // B-23: Pre-populate all enrolled students so those with no scores still appear
                     const byStudent: Record<string, { name: string; total: number; count: number }> = {};
+                    students.forEach((s) => {
+                      byStudent[s.user_id] = { name: s.full_name, total: 0, count: 0 };
+                    });
                     tests.forEach((t) => {
                       const s = students.find((s) => s.user_id === t.student_id);
                       const name = s?.full_name || "Unknown";
@@ -1600,7 +1607,7 @@ export default function BatchWorkspace() {
                       byStudent[t.student_id].count += 1;
                     });
                     const ranked = Object.entries(byStudent)
-                      .map(([id, v]) => ({ id, name: v.name, avg: Math.round(v.total / v.count) }))
+                      .map(([id, v]) => ({ id, name: v.name, avg: v.count > 0 ? Math.round(v.total / v.count) : 0 }))
                       .sort((a, b) => b.avg - a.avg);
                     return (
                       <div className="divide-y divide-border/40">

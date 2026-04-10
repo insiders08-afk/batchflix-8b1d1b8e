@@ -432,10 +432,6 @@ export default function DMConversation() {
                     {msg.message && msg.message !== msg.file_name && !msg.message.startsWith("📎 ") && (
                       <span>{msg.message}</span>
                     )}
-                    {/* Show file-only messages that have text beyond the prefix */}
-                    {msg.message && !msg.file_url && (
-                      msg.message.startsWith("📎 ") ? null : null
-                    )}
                   </>
                 )}
               </div>
