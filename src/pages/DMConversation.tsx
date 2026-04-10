@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   ArrowLeft, Send, Paperclip, X, FileText, Image as ImageIcon,
   Download, Trash2, Edit2, MoreVertical, ThumbsUp, ThumbsDown,
-  ArrowDown, Loader2, Check, ChevronsUp,
+  ArrowDown, Loader2, Check,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
@@ -115,9 +115,6 @@ export default function DMConversation() {
   const {
     messages,
     loading: msgsLoading,
-    hasMore,
-    loadingMore,
-    loadMore,
     sendMessage,
     editMessage,
     deleteMessage,
@@ -297,25 +294,7 @@ export default function DMConversation() {
           setShowScrollDown(t.scrollHeight - t.scrollTop - t.clientHeight > 100);
         }}
       >
-        {/* Fix #5: Load older messages button */}
-        {hasMore && (
-          <div className="flex justify-center py-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-xs text-muted-foreground gap-1.5"
-              onClick={loadMore}
-              disabled={loadingMore}
-            >
-              {loadingMore ? (
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              ) : (
-                <ChevronsUp className="w-3.5 h-3.5" />
-              )}
-              {loadingMore ? "Loading..." : "Load older messages"}
-            </Button>
-          </div>
-        )}
+        {/* Load older messages - placeholder for future pagination */}
 
         {messages.length === 0 && (
           <div className="text-center py-16 text-muted-foreground">
