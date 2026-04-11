@@ -147,19 +147,25 @@ export default function DMConversation() {
   // After messages load for the first time, do a hard instant scroll to bottom.
   // ResizeObserver keeps the user at the bottom if images load and expand the height.
   useEffect(() => {
-    if (msgsLoading) return;
+    if (msgsLoading || pageLoading) return;
     if (messages.length === 0) return;
+
+    // Instant snap to bottom on initial load — use double rAF to ensure DOM is painted
+    if (!initialScrollDone.current) {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          const container = chatContainerRef.current;
+          if (!container) return;
+          container.scrollTop = container.scrollHeight;
+          initialScrollDone.current = true;
+          const distFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+          setShowScrollDown(distFromBottom > 100);
+        });
+      });
+    }
 
     const container = chatContainerRef.current;
     if (!container) return;
-
-    // Instant snap to bottom on initial load
-    if (!initialScrollDone.current) {
-      container.scrollTop = container.scrollHeight;
-      initialScrollDone.current = true;
-      const distFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
-      setShowScrollDown(distFromBottom > 100);
-    }
 
     // ResizeObserver: if content height grows (e.g. images) AND user is near bottom,
     // keep scrolling so they stay at the bottom.
@@ -186,7 +192,7 @@ export default function DMConversation() {
       observer.disconnect();
       window.visualViewport?.removeEventListener("resize", handleResize);
     };
-  }, [msgsLoading, messages.length]);
+  }, [msgsLoading, pageLoading, messages.length]);
 
   // Auto-scroll when a NEW message arrives (realtime) — only if already near bottom
   const prevMsgCount = useRef(0);
