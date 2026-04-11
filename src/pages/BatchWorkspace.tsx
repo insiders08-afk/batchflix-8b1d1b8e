@@ -114,8 +114,6 @@ export default function BatchWorkspace() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   // Track whether we have done the initial scroll-to-bottom after first load
   const initialScrollDone = useRef(false);
-  // Track pending image loads that may shift layout
-  const pendingImages = useRef(0);
 
   const [batch, setBatch] = useState<BatchInfo | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string>("");
@@ -390,20 +388,21 @@ export default function BatchWorkspace() {
     };
   }, [loading, messages.length]);
 
-  // When a NEW message arrives (realtime), auto-scroll only if already near bottom
+  // Auto-scroll logic for NEW incoming messages (realtime)
   const prevMsgCount = useRef(0);
   useEffect(() => {
     const newCount = messages.length;
     if (!initialScrollDone.current) return; // Don't interfere with initial load
+
     if (newCount > prevMsgCount.current) {
       const container = chatContainerRef.current;
       if (container) {
         const dist = container.scrollHeight - container.scrollTop - container.clientHeight;
+        // If we are near bottom (threshold 300px), scroll to the new message
         if (dist < 300) {
-          // User was near bottom — scroll for them smoothly
           scrollToBottom("smooth");
         } else {
-          // User is reading older messages — just show the button
+          // User is scrolled up — show the "New Message" indicator
           setShowScrollDown(true);
         }
       }
@@ -809,6 +808,7 @@ export default function BatchWorkspace() {
                     dragSnapToOrigin={true}
                     dragConstraints={msg.isSelf ? { left: 0, right: 70 } : { left: -70, right: 0 }}
                     dragElastic={0.15}
+                    dragMomentum={false}
                     onDragEnd={(_, info) => {
                       if (msg.isSelf && info.offset.x > 60) {
                         setReplyingTo(msg);

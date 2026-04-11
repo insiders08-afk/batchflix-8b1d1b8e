@@ -26,9 +26,9 @@ const MAX_FILE_SIZE_MB = 10;
 
 // Role-based avatar colors
 const ROLE_AVATAR: Record<string, string> = {
-  admin:   "bg-indigo-500",
-  teacher: "bg-blue-500",
-  student: "bg-emerald-500",
+  admin:   "gradient-hero",
+  teacher: "gradient-hero",
+  student: "bg-secondary border border-border",
 };
 function roleAvatar(role: string) {
   return ROLE_AVATAR[role] ?? "bg-slate-500";
@@ -353,10 +353,12 @@ export default function DMConversation() {
               <div
                 className={cn(
                   "w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0 mt-0.5",
-                  roleAvatar(msg.sender_role)
+                  ROLE_AVATAR[msg.sender_role]
                 )}
               >
-                {msg.sender_name.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2)}
+                <span className={cn(ROLE_AVATAR[msg.sender_role] === "gradient-hero" ? "text-white" : "text-foreground")}>
+                  {msg.sender_name.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2)}
+                </span>
               </div>
             )}
 
