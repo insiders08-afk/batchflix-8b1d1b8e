@@ -7,7 +7,8 @@ import DashboardLayout from "@/components/DashboardLayout";
 import { ChatListItem } from "@/components/chat/ChatListItem";
 import { ChatSearchBar } from "@/components/chat/ChatSearchBar";
 import { useDMList } from "@/hooks/useDMList";
-import type { DirectConversation, BatchLastMessage } from "@/types/chat";
+import { useBatchLastMessages } from "@/hooks/useBatchLastMessages";
+import type { DirectConversation } from "@/types/chat";
 
 type Tab = "all" | "batches" | "teachers" | "students";
 
@@ -35,7 +36,6 @@ export default function AdminChatHub() {
   const [batches, setBatches] = useState<Batch[]>([]);
   const [teachers, setTeachers] = useState<UserProfile[]>([]);
   const [students, setStudents] = useState<UserProfile[]>([]);
-  const [batchLastMsgs, setBatchLastMsgs] = useState<Record<string, BatchLastMessage>>({});
   const [pageLoading, setPageLoading] = useState(true);
 
   // ── Load session & data ──────────────────────────────────
@@ -55,10 +55,9 @@ export default function AdminChatHub() {
       setInstituteCode(ic);
 
       // Run all independent queries in parallel
-      const [instRes, batchRes, blmRes, teacherRes, studentRes] = await Promise.all([
+      const [instRes, batchRes, teacherRes, studentRes] = await Promise.all([
         supabase.from("institutes").select("institute_name, city").eq("institute_code", ic).single(),
         supabase.from("batches").select("id, name, course, teacher_name, updated_at").eq("institute_code", ic).eq("is_active", true).order("updated_at", { ascending: false }),
-        supabase.rpc("get_batch_last_messages", { p_institute_code: ic }),
         supabase.from("profiles").select("user_id, full_name, role").eq("institute_code", ic).eq("role", "teacher").order("full_name"),
         supabase.from("profiles").select("user_id, full_name, role").eq("institute_code", ic).eq("role", "student").order("full_name"),
       ]);
@@ -67,9 +66,6 @@ export default function AdminChatHub() {
         setInstituteName(`${instRes.data.institute_name}${instRes.data.city ? ", " + instRes.data.city : ""}`);
       }
       setBatches(batchRes.data || []);
-      const blmMap: Record<string, BatchLastMessage> = {};
-      (blmRes.data || []).forEach((row: BatchLastMessage) => { blmMap[row.batch_id] = row; });
-      setBatchLastMsgs(blmMap);
       setTeachers(teacherRes.data || []);
       setStudents(studentRes.data || []);
 
@@ -78,7 +74,10 @@ export default function AdminChatHub() {
     init();
   }, []);
 
-  // ── DM conversation list ─────────────────────────────────
+  // ── Realtime batch last messages ──────────────────────────
+  const { batchLastMsgs } = useBatchLastMessages(instituteCode);
+
+  // ── DM conversation list (already has realtime) ─────────
   const { conversations } = useDMList({
     currentUserId,
     currentUserRole: "admin",

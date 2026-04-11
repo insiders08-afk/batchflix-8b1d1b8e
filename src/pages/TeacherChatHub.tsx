@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { Loader2, MessageSquare, LayoutList, ShieldCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -7,8 +7,8 @@ import DashboardLayout from "@/components/DashboardLayout";
 import { ChatListItem } from "@/components/chat/ChatListItem";
 import { ChatSearchBar } from "@/components/chat/ChatSearchBar";
 import { useDMList } from "@/hooks/useDMList";
+import { useBatchLastMessages } from "@/hooks/useBatchLastMessages";
 import { Button } from "@/components/ui/button";
-import type { BatchLastMessage } from "@/types/chat";
 
 type Tab = "all" | "admin_dm";
 
@@ -43,24 +43,11 @@ export default function TeacherChatHub() {
   const [instituteCode, setInstituteCode] = useState("");
   const [instituteName, setInstituteName] = useState("");
   const [batches, setBatches] = useState<Batch[]>([]);
-  const [batchLastMsgs, setBatchLastMsgs] = useState<Record<string, BatchLastMessage>>({});
-  // Fix #13: fetch actual admin name
   const [adminProfile, setAdminProfile] = useState<AdminProfile | null>(null);
   const [pageLoading, setPageLoading] = useState(true);
   const [startingDM, setStartingDM] = useState(false);
 
-  // Fix #25: debounced search prevents jank on each keystroke
   const debouncedSearch = useDebounce(search, 250);
-
-  // Fix #9: refetch batch last messages when page becomes visible (back from DM)
-  const fetchBatchLastMsgs = useCallback(async (ic: string) => {
-    const { data: blm } = await supabase.rpc("get_batch_last_messages", {
-      p_institute_code: ic,
-    });
-    const map: Record<string, BatchLastMessage> = {};
-    (blm || []).forEach((row: BatchLastMessage) => { map[row.batch_id] = row; });
-    setBatchLastMsgs(map);
-  }, []);
 
   useEffect(() => {
     const init = async () => {
@@ -77,11 +64,9 @@ export default function TeacherChatHub() {
       const ic = profile.institute_code;
       setInstituteCode(ic);
 
-      // Run all independent queries in parallel
-      const [instRes, batchRes, blmRes, adminRes] = await Promise.all([
+      const [instRes, batchRes, adminRes] = await Promise.all([
         supabase.from("institutes").select("institute_name, city").eq("institute_code", ic).single(),
         supabase.from("batches").select("id, name, course, teacher_name, updated_at").eq("institute_code", ic).eq("teacher_id", user.id).eq("is_active", true).order("updated_at", { ascending: false }),
-        supabase.rpc("get_batch_last_messages", { p_institute_code: ic }),
         supabase.from("profiles").select("user_id, full_name").eq("institute_code", ic).eq("role", "admin").limit(1).single(),
       ]);
 
@@ -89,25 +74,15 @@ export default function TeacherChatHub() {
         setInstituteName(`${instRes.data.institute_name}${instRes.data.city ? ", " + instRes.data.city : ""}`);
       }
       setBatches(batchRes.data || []);
-      const map: Record<string, BatchLastMessage> = {};
-      (blmRes.data || []).forEach((row: BatchLastMessage) => { map[row.batch_id] = row; });
-      setBatchLastMsgs(map);
       if (adminRes.data) setAdminProfile(adminRes.data);
 
       setPageLoading(false);
     };
     init();
-  }, [fetchBatchLastMsgs]);
+  }, []);
 
-  // Fix #9: re-fetch batch last messages when the tab becomes visible again
-  useEffect(() => {
-    if (!instituteCode) return;
-    const handleVis = () => {
-      if (document.visibilityState === "visible") fetchBatchLastMsgs(instituteCode);
-    };
-    document.addEventListener("visibilitychange", handleVis);
-    return () => document.removeEventListener("visibilitychange", handleVis);
-  }, [instituteCode, fetchBatchLastMsgs]);
+  // Realtime batch last messages
+  const { batchLastMsgs } = useBatchLastMessages(instituteCode);
 
   const { conversations } = useDMList({
     currentUserId,
