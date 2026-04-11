@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { Loader2, MessageSquare, LayoutList, ShieldCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -7,8 +7,8 @@ import DashboardLayout from "@/components/DashboardLayout";
 import { ChatListItem } from "@/components/chat/ChatListItem";
 import { ChatSearchBar } from "@/components/chat/ChatSearchBar";
 import { useDMList } from "@/hooks/useDMList";
+import { useBatchLastMessages } from "@/hooks/useBatchLastMessages";
 import { Button } from "@/components/ui/button";
-import type { BatchLastMessage } from "@/types/chat";
 
 type Tab = "all" | "admin_dm";
 
@@ -42,24 +42,11 @@ export default function StudentChatHub() {
   const [instituteCode, setInstituteCode] = useState("");
   const [instituteName, setInstituteName] = useState("");
   const [batches, setBatches] = useState<Batch[]>([]);
-  const [batchLastMsgs, setBatchLastMsgs] = useState<Record<string, BatchLastMessage>>({});
-  // Fix #13: fetch actual admin name
   const [adminProfile, setAdminProfile] = useState<AdminProfile | null>(null);
   const [pageLoading, setPageLoading] = useState(true);
   const [startingDM, setStartingDM] = useState(false);
 
-  // Fix #25: debounced search
   const debouncedSearch = useDebounce(search, 250);
-
-  // Fix #9: extract fetchBatchLastMsgs so visibility handler can call it
-  const fetchBatchLastMsgs = useCallback(async (ic: string) => {
-    const { data: blm } = await supabase.rpc("get_batch_last_messages", {
-      p_institute_code: ic,
-    });
-    const map: Record<string, BatchLastMessage> = {};
-    (blm || []).forEach((row: BatchLastMessage) => { map[row.batch_id] = row; });
-    setBatchLastMsgs(map);
-  }, []);
 
   useEffect(() => {
     const init = async () => {
@@ -76,23 +63,17 @@ export default function StudentChatHub() {
       const ic = profile.institute_code;
       setInstituteCode(ic);
 
-      // Run all independent queries in parallel
-      const [instRes, enrollRes, blmRes, adminRes] = await Promise.all([
+      const [instRes, enrollRes, adminRes] = await Promise.all([
         supabase.from("institutes").select("institute_name, city").eq("institute_code", ic).single(),
         supabase.from("students_batches").select("batch_id").eq("student_id", user.id),
-        supabase.rpc("get_batch_last_messages", { p_institute_code: ic }),
         supabase.from("profiles").select("user_id, full_name").eq("institute_code", ic).eq("role", "admin").limit(1).single(),
       ]);
 
       if (instRes.data) {
         setInstituteName(`${instRes.data.institute_name}${instRes.data.city ? ", " + instRes.data.city : ""}`);
       }
-      const map: Record<string, BatchLastMessage> = {};
-      (blmRes.data || []).forEach((row: BatchLastMessage) => { map[row.batch_id] = row; });
-      setBatchLastMsgs(map);
       if (adminRes.data) setAdminProfile(adminRes.data);
 
-      // Fetch batch details if enrolled
       if (enrollRes.data && enrollRes.data.length > 0) {
         const batchIds = enrollRes.data.map((e) => e.batch_id);
         const { data: batchData } = await supabase
@@ -107,17 +88,10 @@ export default function StudentChatHub() {
       setPageLoading(false);
     };
     init();
-  }, [fetchBatchLastMsgs]);
+  }, []);
 
-  // Fix #9: refetch on page visibility change (e.g., navigating back from DM)
-  useEffect(() => {
-    if (!instituteCode) return;
-    const handleVis = () => {
-      if (document.visibilityState === "visible") fetchBatchLastMsgs(instituteCode);
-    };
-    document.addEventListener("visibilitychange", handleVis);
-    return () => document.removeEventListener("visibilitychange", handleVis);
-  }, [instituteCode, fetchBatchLastMsgs]);
+  // Realtime batch last messages
+  const { batchLastMsgs } = useBatchLastMessages(instituteCode);
 
   const { conversations } = useDMList({
     currentUserId,
