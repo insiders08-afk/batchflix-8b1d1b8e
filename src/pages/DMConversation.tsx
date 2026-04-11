@@ -144,7 +144,8 @@ export default function DMConversation() {
     setShowScrollDown(distFromBottom > 100);
   }, []);
 
-  // Initial scroll to bottom after first load — instant snap
+  // After messages load for the first time, do a hard instant scroll to bottom.
+  // ResizeObserver keeps the user at the bottom if images load and expand the height.
   useEffect(() => {
     if (msgsLoading) return;
     if (messages.length === 0) return;
@@ -152,39 +153,16 @@ export default function DMConversation() {
     const container = chatContainerRef.current;
     if (!container) return;
 
+    // Instant snap to bottom on initial load
     if (!initialScrollDone.current) {
       container.scrollTop = container.scrollHeight;
       initialScrollDone.current = true;
       const distFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
       setShowScrollDown(distFromBottom > 100);
     }
-  }, [msgsLoading, messages.length]);
 
-  // Auto-scroll when new messages arrive (only if already near bottom)
-  const prevMsgCount = useRef(0);
-  useEffect(() => {
-    const newCount = messages.length;
-    if (!initialScrollDone.current) return;
-    if (newCount > prevMsgCount.current) {
-      const container = chatContainerRef.current;
-      if (container) {
-        const dist = container.scrollHeight - container.scrollTop - container.clientHeight;
-        if (dist < 300) {
-          scrollToBottom("smooth");
-        } else {
-          setShowScrollDown(true);
-        }
-      }
-    }
-    prevMsgCount.current = newCount;
-  }, [messages, scrollToBottom]);
-
-  // ResizeObserver + visualViewport for mobile keyboard (ported from BatchWorkspace)
-  useEffect(() => {
-    if (msgsLoading) return;
-    const container = chatContainerRef.current;
-    if (!container) return;
-
+    // ResizeObserver: if content height grows (e.g. images) AND user is near bottom,
+    // keep scrolling so they stay at the bottom.
     const observer = new ResizeObserver(() => {
       const dist = container.scrollHeight - container.scrollTop - container.clientHeight;
       if (dist < 300) {
@@ -208,7 +186,28 @@ export default function DMConversation() {
       observer.disconnect();
       window.visualViewport?.removeEventListener("resize", handleResize);
     };
-  }, [msgsLoading]);
+  }, [msgsLoading, messages.length]);
+
+  // Auto-scroll when a NEW message arrives (realtime) — only if already near bottom
+  const prevMsgCount = useRef(0);
+  useEffect(() => {
+    const newCount = messages.length;
+    if (!initialScrollDone.current) return; // Don't interfere with initial load
+    if (newCount > prevMsgCount.current) {
+      const container = chatContainerRef.current;
+      if (container) {
+        const dist = container.scrollHeight - container.scrollTop - container.clientHeight;
+        if (dist < 300) {
+          // User was near bottom — scroll for them smoothly
+          scrollToBottom("smooth");
+        } else {
+          // User is reading older messages — just show the button
+          setShowScrollDown(true);
+        }
+      }
+    }
+    prevMsgCount.current = newCount;
+  }, [messages, scrollToBottom]);
 
   const handleBack = () => {
     navigate(`/${currentUserRole}/chat`);
