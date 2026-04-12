@@ -975,7 +975,7 @@ export type Database = {
         | "student"
         | "parent"
         | "app_owner"
-      dm_type: "admin_teacher" | "admin_student"
+      dm_type: "admin_teacher" | "admin_student" | "teacher_student"
       institute_status: "pending" | "approved" | "rejected"
       user_status: "pending" | "approved" | "rejected" | "active"
     }
@@ -1113,7 +1113,7 @@ export const Constants = {
         "parent",
         "app_owner",
       ],
-      dm_type: ["admin_teacher", "admin_student"],
+      dm_type: ["admin_teacher", "admin_student", "teacher_student"],
       institute_status: ["pending", "approved", "rejected"],
       user_status: ["pending", "approved", "rejected", "active"],
     },
