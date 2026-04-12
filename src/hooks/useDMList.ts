@@ -11,10 +11,11 @@ interface UseDMListOptions {
 export function useDMList({ currentUserId, currentUserRole, instituteCode }: UseDMListOptions) {
   const [conversations, setConversations] = useState<DirectConversation[]>([]);
   const [loading, setLoading] = useState(true);
-  const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const channelRef = useRef<ReturnType<typeof supabase.channel>[]>([]);
 
+  // Position-aware unread count: check which side the user is on per conversation
   const totalUnread = conversations.reduce((sum, c) => {
-    const count = currentUserRole === "admin" ? c.admin_unread_count : c.other_user_unread_count;
+    const count = c.admin_id === currentUserId ? c.admin_unread_count : c.other_user_unread_count;
     return sum + (count || 0);
   }, 0);
 
@@ -29,7 +30,12 @@ export function useDMList({ currentUserId, currentUserRole, instituteCode }: Use
 
     if (currentUserRole === "admin") {
       query = query.eq("admin_id", currentUserId);
+    } else if (currentUserRole === "teacher") {
+      // Teacher appears as other_user_id in admin-teacher DMs
+      // and as admin_id in teacher-student DMs
+      query = query.or(`admin_id.eq.${currentUserId},other_user_id.eq.${currentUserId}`);
     } else {
+      // Student is always other_user_id
       query = query.eq("other_user_id", currentUserId);
     }
 
@@ -49,36 +55,49 @@ export function useDMList({ currentUserId, currentUserRole, instituteCode }: Use
   useEffect(() => {
     if (!currentUserId || !instituteCode) return;
 
-    // Clean up any previous channel first
-    if (channelRef.current) {
-      supabase.removeChannel(channelRef.current);
-      channelRef.current = null;
+    // Clean up previous channels
+    channelRef.current.forEach((ch) => supabase.removeChannel(ch));
+    channelRef.current = [];
+
+    const ts = Date.now();
+    const channels: ReturnType<typeof supabase.channel>[] = [];
+
+    if (currentUserRole === "teacher") {
+      // Teacher needs two subscriptions: one for each column they can appear in
+      const ch1 = supabase
+        .channel(`dm-list-other-${currentUserId}-${ts}`)
+        .on("postgres_changes", {
+          event: "*", schema: "public", table: "direct_conversations",
+          filter: `other_user_id=eq.${currentUserId}`,
+        }, () => fetchConversations())
+        .subscribe();
+
+      const ch2 = supabase
+        .channel(`dm-list-admin-${currentUserId}-${ts}`)
+        .on("postgres_changes", {
+          event: "*", schema: "public", table: "direct_conversations",
+          filter: `admin_id=eq.${currentUserId}`,
+        }, () => fetchConversations())
+        .subscribe();
+
+      channels.push(ch1, ch2);
+    } else {
+      const filterCol = currentUserRole === "admin" ? "admin_id" : "other_user_id";
+      const ch = supabase
+        .channel(`dm-list-${currentUserId}-${ts}`)
+        .on("postgres_changes", {
+          event: "*", schema: "public", table: "direct_conversations",
+          filter: `${filterCol}=eq.${currentUserId}`,
+        }, () => fetchConversations())
+        .subscribe();
+      channels.push(ch);
     }
 
-    const filterCol = currentUserRole === "admin" ? "admin_id" : "other_user_id";
-    const channelName = `dm-list-${currentUserId}-${Date.now()}`;
-
-    const channel = supabase
-      .channel(channelName)
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "direct_conversations",
-          filter: `${filterCol}=eq.${currentUserId}`,
-        },
-        () => {
-          fetchConversations();
-        }
-      )
-      .subscribe();
-
-    channelRef.current = channel;
+    channelRef.current = channels;
 
     return () => {
-      supabase.removeChannel(channel);
-      channelRef.current = null;
+      channels.forEach((ch) => supabase.removeChannel(ch));
+      channelRef.current = [];
     };
   }, [currentUserId, currentUserRole, instituteCode, fetchConversations]);
 

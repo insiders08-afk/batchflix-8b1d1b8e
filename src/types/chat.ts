@@ -2,7 +2,7 @@
 // BatchHub — Chat & DM Type Definitions
 // ──────────────────────────────────────────────────────────────
 
-export type DmType = "admin_teacher" | "admin_student";
+export type DmType = "admin_teacher" | "admin_student" | "teacher_student";
 
 export interface DirectConversation {
   id: string;
@@ -61,4 +61,15 @@ export interface BatchLastMessage {
   last_message: string;
   last_message_at: string;
   sender_name: string;
+}
+
+// Helper to determine other user's role from dm_type
+export function getOtherRoleFromDmType(dmType: DmType, isAdminSide: boolean): string {
+  const roleMap: Record<DmType, [string, string]> = {
+    admin_teacher: ["admin", "teacher"],
+    admin_student: ["admin", "student"],
+    teacher_student: ["teacher", "student"],
+  };
+  const [adminSideRole, otherSideRole] = roleMap[dmType];
+  return isAdminSide ? otherSideRole : adminSideRole;
 }

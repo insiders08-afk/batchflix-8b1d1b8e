@@ -86,22 +86,32 @@ export default function DMConversation() {
 
       const { data: conv } = await supabase
         .from("direct_conversations")
-        .select("admin_id, other_user_id")
+        .select("admin_id, other_user_id, dm_type")
         .eq("id", conversationId)
         .single();
 
       if (conv) {
-        const otherId = conv.admin_id === user.id ? conv.other_user_id : conv.admin_id;
-        // B-20: Always use otherProfile.role from DB, not hardcoded
+        const isAdminSide = conv.admin_id === user.id;
+        const otherId = isAdminSide ? conv.other_user_id : conv.admin_id;
+
+        // Derive expected role from dm_type to handle multi-role users
+        const roleMap: Record<string, [string, string]> = {
+          admin_teacher: ["admin", "teacher"],
+          admin_student: ["admin", "student"],
+          teacher_student: ["teacher", "student"],
+        };
+        const roles = roleMap[conv.dm_type] || ["admin", "student"];
+        const expectedOtherRole = isAdminSide ? roles[1] : roles[0];
+
         const { data: otherProfile } = await supabase
           .from("profiles")
-          .select("full_name, role")
+          .select("full_name")
           .eq("user_id", otherId)
-          .single();
-        if (otherProfile) {
-          setOtherUserName(otherProfile.full_name);
-          setOtherUserRole(otherProfile.role);
-        }
+          .eq("role", expectedOtherRole as any)
+          .maybeSingle();
+
+        setOtherUserName(otherProfile?.full_name || "User");
+        setOtherUserRole(expectedOtherRole);
       }
 
       setPageLoading(false);
