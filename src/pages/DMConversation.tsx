@@ -107,7 +107,7 @@ export default function DMConversation() {
           .from("profiles")
           .select("full_name")
           .eq("user_id", otherId)
-          .eq("role", expectedOtherRole)
+          .eq("role", expectedOtherRole as any)
           .maybeSingle();
 
         setOtherUserName(otherProfile?.full_name || "User");
