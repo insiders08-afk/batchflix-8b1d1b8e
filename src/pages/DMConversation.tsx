@@ -21,6 +21,7 @@ import { useDirectMessages } from "@/hooks/useDirectMessages";
 import type { DirectMessage } from "@/types/chat";
 import { useToast } from "@/hooks/use-toast";
 import { formatChatDate, getMessagePreview, roleLabel } from "@/lib/chatUtils";
+import { useAuth } from "@/contexts/AuthContext";
 
 const MAX_FILE_SIZE_MB = 10;
 
@@ -38,11 +39,13 @@ export default function DMConversation() {
   const { conversationId } = useParams<{ conversationId: string }>();
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { authUser } = useAuth();
 
-  const [currentUserId, setCurrentUserId] = useState("");
-  const [currentUserName, setCurrentUserName] = useState("");
-  const [currentUserRole, setCurrentUserRole] = useState("student");
-  const [instituteCode, setInstituteCode] = useState("");
+  const currentUserId = authUser?.userId ?? "";
+  const currentUserName = authUser?.userName ?? "";
+  const currentUserRole = authUser?.userRole ?? "student";
+  const instituteCode = authUser?.instituteCode ?? "";
+
   const [otherUserName, setOtherUserName] = useState("...");
   const [otherUserRole, setOtherUserRole] = useState("");
   const [pageLoading, setPageLoading] = useState(true);
@@ -63,27 +66,10 @@ export default function DMConversation() {
   const chatEndRef = useRef<HTMLDivElement>(null);
   const initialScrollDone = useRef(false);
 
-  // ── Session & conversation info ─────────────────────────────
+  // ── Conversation info (only 2 queries now — no auth/profile fetch) ──
   useEffect(() => {
+    if (!currentUserId || !conversationId) return;
     const init = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user || !conversationId) {
-        navigate("/role-select", { replace: true });
-        return;
-      }
-      setCurrentUserId(user.id);
-
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("full_name, role, institute_code")
-        .eq("user_id", user.id)
-        .single();
-      if (profile) {
-        setCurrentUserName(profile.full_name);
-        setCurrentUserRole(profile.role);
-        setInstituteCode(profile.institute_code || "");
-      }
-
       const { data: conv } = await supabase
         .from("direct_conversations")
         .select("admin_id, other_user_id, dm_type")
@@ -91,10 +77,9 @@ export default function DMConversation() {
         .single();
 
       if (conv) {
-        const isAdminSide = conv.admin_id === user.id;
+        const isAdminSide = conv.admin_id === currentUserId;
         const otherId = isAdminSide ? conv.other_user_id : conv.admin_id;
 
-        // Derive expected role from dm_type to handle multi-role users
         const roleMap: Record<string, [string, string]> = {
           admin_teacher: ["admin", "teacher"],
           admin_student: ["admin", "student"],
@@ -117,10 +102,9 @@ export default function DMConversation() {
       setPageLoading(false);
     };
     init();
-  }, [conversationId, navigate]);
+  }, [conversationId, currentUserId]);
 
   // ── Messages hook ───────────────────────────────────────────
-  // B-1: Removed hasMore/loadMore/loadingMore destructuring (not returned by hook)
   const {
     messages,
     loading: msgsLoading,
