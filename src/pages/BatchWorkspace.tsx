@@ -832,10 +832,23 @@ export default function BatchWorkspace() {
               onScroll={(e) => {
                 const target = e.currentTarget;
                 const distFromBottom = target.scrollHeight - target.scrollTop - target.clientHeight;
-                // Show button if more than 100px from bottom (not just near-bottom)
                 setShowScrollDown(distFromBottom > 100);
+                // Load older messages when scrolled to top
+                if (target.scrollTop < 60 && hasMoreMsgs && !loadingMoreMsgs) {
+                  loadOlderBatchMessages();
+                }
               }}
             >
+              {/* Load more indicator */}
+              {loadingMoreMsgs && (
+                <div className="flex justify-center py-2">
+                  <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+                </div>
+              )}
+              {!hasMoreMsgs && messages.length > 0 && (
+                <p className="text-center text-xs text-muted-foreground py-2">Beginning of conversation</p>
+              )}
+
               {messages.length === 0 && (
                 <div className="text-center py-12 text-muted-foreground">
                   <MessageSquare className="w-8 h-8 mx-auto mb-2 opacity-30" />
