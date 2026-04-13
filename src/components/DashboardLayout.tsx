@@ -5,7 +5,7 @@ import {
   FlaskConical, IndianRupee, GraduationCap, Settings,
   LogOut, Zap, ChevronLeft, Menu, X, ShieldCheck,
   BookOpen, Trophy, ClipboardList, UserCircle, BookMarked, PlusCircle, Download,
-  MessageSquare
+  MessageSquare, RefreshCw
 } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
