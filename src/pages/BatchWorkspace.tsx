@@ -51,6 +51,9 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { sendPushNotification, getBatchStudentIds } from "@/lib/pushNotifications";
 import { formatChatDate, getMessagePreview, timeAgo } from "@/lib/chatUtils";
+import { saveCachedMessages, loadCachedMessages } from "@/lib/chatCache";
+
+const BATCH_MSG_PAGE_SIZE = 50;
 
 interface BatchInfo {
   id: string;
@@ -126,7 +129,12 @@ export default function BatchWorkspace() {
   const [chatChannelStatus, setChatChannelStatus] = useState<string>("CONNECTING");
 
   // Chat
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const batchCacheKey = `batch_${batchId}`;
+  const [messages, setMessages] = useState<ChatMessage[]>(() =>
+    loadCachedMessages<ChatMessage>(batchCacheKey)
+  );
+  const [hasMoreMsgs, setHasMoreMsgs] = useState(true);
+  const [loadingMoreMsgs, setLoadingMoreMsgs] = useState(false);
   const [chatInput, setChatInput] = useState("");
   const [sendingMsg, setSendingMsg] = useState(false);
   const [attachedFile, setAttachedFile] = useState<File | null>(null);
