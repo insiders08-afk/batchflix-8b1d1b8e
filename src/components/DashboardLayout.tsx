@@ -15,6 +15,7 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { usePushNotifications } from "@/hooks/use-push-notifications";
 import BottomNav from "@/components/BottomNav";
 import { useDMList } from "@/hooks/useDMList";
+import { useAuth } from "@/contexts/AuthContext";
 
 type Role = "admin" | "teacher" | "student" | "parent";
 
