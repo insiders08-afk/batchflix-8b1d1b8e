@@ -113,8 +113,17 @@ export function useDirectMessages({
           const msg = payload.new as DirectMessage;
           setMessages((prev) => {
             if (prev.some((m) => m.id === msg.id)) return prev;
+            // Remove optimistic placeholder (same sender + same message text)
+            const withoutOptimistic = prev.filter(
+              (m) =>
+                !(
+                  m.id.startsWith("optimistic-") &&
+                  m.sender_id === msg.sender_id &&
+                  m.message === msg.message
+                )
+            );
             const next = [
-              ...prev,
+              ...withoutOptimistic,
               {
                 ...msg,
                 reactions: (msg.reactions ?? {}) as Record<string, string[]>,
