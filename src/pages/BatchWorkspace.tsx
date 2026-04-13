@@ -337,7 +337,7 @@ export default function BatchWorkspace() {
   // We also set up a ResizeObserver so that if images load and push the height
   // down, we keep scrolling until stable (only if user hasn't manually scrolled).
   useEffect(() => {
-    if (loading) return;
+    if (criticalLoading) return;
     if (messages.length === 0) return;
 
     const container = chatContainerRef.current;
@@ -378,7 +378,7 @@ export default function BatchWorkspace() {
       observer.disconnect();
       window.visualViewport?.removeEventListener("resize", handleResize);
     };
-  }, [loading, messages.length]);
+  }, [criticalLoading, messages.length]);
 
   // Auto-scroll logic for NEW incoming messages (realtime)
   const prevMsgCount = useRef(0);
@@ -706,10 +706,19 @@ export default function BatchWorkspace() {
   const isImage = (type: string | null | undefined) => type?.startsWith("image/");
   const isPDF = (type: string | null | undefined) => type === "application/pdf";
 
-  if (loading) {
+  if (criticalLoading) {
     return (
-      <div className="flex items-center justify-center h-screen bg-background">
-        <Loader2 className="w-6 h-6 animate-spin text-primary" />
+      <div className="fixed inset-0 flex flex-col bg-background">
+        <header className="border-b border-border/50 bg-card flex items-center gap-3 px-4 h-14 flex-shrink-0">
+          <div className="w-8 h-8 bg-muted rounded-lg animate-pulse" />
+          <div className="flex-1 space-y-1.5">
+            <div className="h-3 bg-muted rounded w-32 animate-pulse" />
+            <div className="h-2.5 bg-muted rounded w-20 animate-pulse" />
+          </div>
+        </header>
+        <div className="flex-1 flex items-center justify-center">
+          <Loader2 className="w-5 h-5 animate-spin text-primary" />
+        </div>
       </div>
     );
   }
