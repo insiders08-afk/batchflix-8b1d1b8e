@@ -8,6 +8,7 @@ import { ChatListItem } from "@/components/chat/ChatListItem";
 import { ChatSearchBar } from "@/components/chat/ChatSearchBar";
 import { useDMList } from "@/hooks/useDMList";
 import { useBatchLastMessages } from "@/hooks/useBatchLastMessages";
+import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 
 type Tab = "all" | "admin_dm" | "students";
@@ -42,15 +43,17 @@ function useDebounce<T>(value: T, delay = 300): T {
 
 export default function TeacherChatHub() {
   const navigate = useNavigate();
+  const { authUser } = useAuth();
   const [activeTab, setActiveTab] = useState<Tab>("all");
   const [search, setSearch] = useState("");
-  const [currentUserId, setCurrentUserId] = useState("");
-  const [instituteCode, setInstituteCode] = useState("");
-  const [instituteName, setInstituteName] = useState("");
   const [batches, setBatches] = useState<Batch[]>([]);
   const [adminProfile, setAdminProfile] = useState<AdminProfile | null>(null);
   const [pageLoading, setPageLoading] = useState(true);
   const [startingDM, setStartingDM] = useState(false);
+
+  const currentUserId = authUser?.userId ?? "";
+  const instituteCode = authUser?.instituteCode ?? "";
+  const instituteName = authUser?.instituteName ?? "";
 
   // Profile map: userId → full_name (for DM other users)
   const [profileMap, setProfileMap] = useState<Record<string, string>>({});
@@ -62,37 +65,19 @@ export default function TeacherChatHub() {
   const debouncedSearch = useDebounce(search, 250);
 
   useEffect(() => {
+    if (!instituteCode || !currentUserId) return;
     const init = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-      setCurrentUserId(user.id);
-
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("institute_code")
-        .eq("user_id", user.id)
-        .eq("role", "teacher")
-        .maybeSingle();
-      if (!profile?.institute_code) return;
-      const ic = profile.institute_code;
-      setInstituteCode(ic);
-
-      const [instRes, batchRes, adminRes] = await Promise.all([
-        supabase.from("institutes").select("institute_name, city").eq("institute_code", ic).single(),
-        supabase.from("batches").select("id, name, course, teacher_name, updated_at").eq("institute_code", ic).eq("teacher_id", user.id).eq("is_active", true).order("updated_at", { ascending: false }),
-        supabase.from("profiles").select("user_id, full_name").eq("institute_code", ic).eq("role", "admin").limit(1).single(),
+      const [batchRes, adminRes] = await Promise.all([
+        supabase.from("batches").select("id, name, course, teacher_name, updated_at").eq("institute_code", instituteCode).eq("teacher_id", currentUserId).eq("is_active", true).order("updated_at", { ascending: false }),
+        supabase.from("profiles").select("user_id, full_name").eq("institute_code", instituteCode).eq("role", "admin").limit(1).single(),
       ]);
 
-      if (instRes.data) {
-        setInstituteName(`${instRes.data.institute_name}${instRes.data.city ? ", " + instRes.data.city : ""}`);
-      }
       setBatches(batchRes.data || []);
       if (adminRes.data) setAdminProfile(adminRes.data);
-
       setPageLoading(false);
     };
     init();
-  }, []);
+  }, [instituteCode, currentUserId]);
 
   const { batchLastMsgs } = useBatchLastMessages(instituteCode);
 

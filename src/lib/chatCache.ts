@@ -1,0 +1,21 @@
+const PREFIX = "bh_msgs_";
+const MAX = 50;
+
+export function saveCachedMessages(key: string, messages: unknown[]) {
+  try {
+    sessionStorage.setItem(PREFIX + key, JSON.stringify(messages.slice(-MAX)));
+  } catch { /* quota exceeded — ignore */ }
+}
+
+export function loadCachedMessages<T = unknown>(key: string): T[] {
+  try {
+    const raw = sessionStorage.getItem(PREFIX + key);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function clearCachedMessages(key: string) {
+  sessionStorage.removeItem(PREFIX + key);
+}

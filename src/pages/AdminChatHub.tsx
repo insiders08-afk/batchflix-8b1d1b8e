@@ -8,6 +8,7 @@ import { ChatListItem } from "@/components/chat/ChatListItem";
 import { ChatSearchBar } from "@/components/chat/ChatSearchBar";
 import { useDMList } from "@/hooks/useDMList";
 import { useBatchLastMessages } from "@/hooks/useBatchLastMessages";
+import { useAuth } from "@/contexts/AuthContext";
 import type { DirectConversation } from "@/types/chat";
 
 type Tab = "all" | "batches" | "teachers" | "students";
@@ -28,51 +29,35 @@ interface UserProfile {
 
 export default function AdminChatHub() {
   const navigate = useNavigate();
+  const { authUser } = useAuth();
   const [activeTab, setActiveTab] = useState<Tab>("all");
   const [search, setSearch] = useState("");
-  const [currentUserId, setCurrentUserId] = useState("");
-  const [instituteCode, setInstituteCode] = useState("");
-  const [instituteName, setInstituteName] = useState("");
   const [batches, setBatches] = useState<Batch[]>([]);
   const [teachers, setTeachers] = useState<UserProfile[]>([]);
   const [students, setStudents] = useState<UserProfile[]>([]);
   const [pageLoading, setPageLoading] = useState(true);
 
-  // ── Load session & data ──────────────────────────────────
+  const currentUserId = authUser?.userId ?? "";
+  const instituteCode = authUser?.instituteCode ?? "";
+  const instituteName = authUser?.instituteName ?? "";
+
+  // ── Load data (auth comes from context — no getUser/profile fetch) ──
   useEffect(() => {
+    if (!instituteCode) return;
     const init = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-      setCurrentUserId(user.id);
-
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("institute_code")
-        .eq("user_id", user.id)
-        .single();
-      if (!profile?.institute_code) return;
-      const ic = profile.institute_code;
-      setInstituteCode(ic);
-
-      // Run all independent queries in parallel
-      const [instRes, batchRes, teacherRes, studentRes] = await Promise.all([
-        supabase.from("institutes").select("institute_name, city").eq("institute_code", ic).single(),
-        supabase.from("batches").select("id, name, course, teacher_name, updated_at").eq("institute_code", ic).eq("is_active", true).order("updated_at", { ascending: false }),
-        supabase.from("profiles").select("user_id, full_name, role").eq("institute_code", ic).eq("role", "teacher").order("full_name"),
-        supabase.from("profiles").select("user_id, full_name, role").eq("institute_code", ic).eq("role", "student").order("full_name"),
+      const [batchRes, teacherRes, studentRes] = await Promise.all([
+        supabase.from("batches").select("id, name, course, teacher_name, updated_at").eq("institute_code", instituteCode).eq("is_active", true).order("updated_at", { ascending: false }),
+        supabase.from("profiles").select("user_id, full_name, role").eq("institute_code", instituteCode).eq("role", "teacher").order("full_name"),
+        supabase.from("profiles").select("user_id, full_name, role").eq("institute_code", instituteCode).eq("role", "student").order("full_name"),
       ]);
 
-      if (instRes.data) {
-        setInstituteName(`${instRes.data.institute_name}${instRes.data.city ? ", " + instRes.data.city : ""}`);
-      }
       setBatches(batchRes.data || []);
       setTeachers(teacherRes.data || []);
       setStudents(studentRes.data || []);
-
       setPageLoading(false);
     };
     init();
-  }, []);
+  }, [instituteCode]);
 
   // ── Realtime batch last messages ──────────────────────────
   const { batchLastMsgs } = useBatchLastMessages(instituteCode);

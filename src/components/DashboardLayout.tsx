@@ -15,6 +15,7 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { usePushNotifications } from "@/hooks/use-push-notifications";
 import BottomNav from "@/components/BottomNav";
 import { useDMList } from "@/hooks/useDMList";
+import { useAuth } from "@/contexts/AuthContext";
 
 type Role = "admin" | "teacher" | "student" | "parent";
 
@@ -84,22 +85,23 @@ interface DashboardLayoutProps {
 export default function DashboardLayout({ children, title, role = "admin" }: DashboardLayoutProps) {
   const location = useLocation();
   const navigate = useNavigate();
+  const { authUser, authLoading } = useAuth();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [approvalsPending, setApprovalsPending] = useState(0);
-  const [userName, setUserName] = useState("Loading...");
-  const [userInitials, setUserInitials] = useState("...");
-  const [instituteName, setInstituteName] = useState("");
-  const [instituteCode, setInstituteCode] = useState<string | null>(null);
-  const [authChecked, setAuthChecked] = useState(false);
-  const [currentUserId, setCurrentUserId] = useState("");
+
+  const userName = authUser?.userName ?? "Loading...";
+  const userInitials = authUser?.userInitials ?? "..";
+  const instituteName = authUser?.instituteName ?? "";
+  const instituteCode = authUser?.instituteCode ?? null;
+  const currentUserId = authUser?.userId ?? "";
+  const authChecked = !authLoading && !!authUser;
 
   // Register push notification subscription once we have the institute code
   usePushNotifications(instituteCode);
 
   // DM unread count for bottom nav badge (only for roles that have chat)
   const showBottomNav = role === "admin" || role === "teacher" || role === "student";
-  // Only subscribe to DM list for roles that actually use the chat feature
   const { totalUnread: dmUnread } = useDMList({
     currentUserId: showBottomNav ? currentUserId : "",
     currentUserRole: role,
@@ -114,69 +116,26 @@ export default function DashboardLayout({ children, title, role = "admin" }: Das
   const menuItems = menusByRole[role];
   const isAdmin = role === "admin";
 
-  // Auth guard + profile fetch — uses getSession() (localStorage, instant) not getUser() (network)
+  // Auth guard — lightweight check using cached context
   useEffect(() => {
-    const loadProfile = async (userId: string, email: string | undefined) => {
-      setCurrentUserId(userId);
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("full_name, institute_code")
-        .eq("user_id", userId)
-        .single();
+    if (authLoading) return;
+    if (!authUser) {
+      navigate(roleAuthPaths[role], { replace: true });
+      return;
+    }
+    // Validate role using cached roles from AuthContext
+    if (!authUser.userRoles.includes(role)) {
+      navigate("/role-select", { replace: true });
+    }
+  }, [authUser, authLoading, navigate, role]);
 
-      if (profile) {
-        setUserName(profile.full_name || email || "User");
-        const parts = (profile.full_name || "U").split(" ");
-        setUserInitials(parts.map((p: string) => p[0]).join("").toUpperCase().slice(0, 2));
-
-        if (profile.institute_code) {
-          setInstituteCode(profile.institute_code);
-          const { data: institute } = await supabase
-            .from("institutes")
-            .select("institute_name, city")
-            .eq("institute_code", profile.institute_code)
-            .single();
-          if (institute) {
-            setInstituteName(`${institute.institute_name}${institute.city ? ", " + institute.city : ""}`);
-          } else {
-            setInstituteName(profile.institute_code);
-          }
-        }
-      }
-      setAuthChecked(true);
-    };
-
-    // Read session from localStorage instantly (no network round-trip)
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      if (!session) {
-        navigate(roleAuthPaths[role], { replace: true });
-        return;
-      }
-
-      // INC-11 fix: verify user actually has the required role
-      const { data: roleCheck } = await supabase
-        .from("user_roles")
-        .select("role")
-        .eq("user_id", session.user.id)
-        .eq("role", role)
-        .maybeSingle();
-
-      if (!roleCheck) {
-        // User doesn't have this role — send them to role selection
-        navigate("/role-select", { replace: true });
-        return;
-      }
-
-      loadProfile(session.user.id, session.user.email);
-    });
-
-    // Listen for sign-out events to redirect immediately
+  // Listen for sign-out events to redirect immediately
+  useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === "SIGNED_OUT" || (!session && event !== "INITIAL_SESSION")) {
         navigate(roleAuthPaths[role], { replace: true });
       }
     });
-
     return () => subscription.unsubscribe();
   }, [navigate, role]);
 
