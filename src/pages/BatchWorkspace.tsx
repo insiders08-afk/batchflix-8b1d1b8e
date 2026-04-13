@@ -110,18 +110,19 @@ export default function BatchWorkspace() {
   const { id: batchId } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { authUser } = useAuth();
   const chatEndRef = useRef<HTMLDivElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  // Track whether we have done the initial scroll-to-bottom after first load
   const initialScrollDone = useRef(false);
 
   const [batch, setBatch] = useState<BatchInfo | null>(null);
-  const [currentUserId, setCurrentUserId] = useState<string>("");
-  const [currentUserName, setCurrentUserName] = useState<string>("");
-  const [currentUserRole, setCurrentUserRole] = useState<string>("student");
+  const currentUserId = authUser?.userId ?? "";
+  const currentUserName = authUser?.userName ?? "";
+  const currentUserRole = authUser?.userRole ?? "student";
   const [studentCount, setStudentCount] = useState(0);
-  const [loading, setLoading] = useState(true);
+  const [criticalLoading, setCriticalLoading] = useState(true);
+  const [tabsLoading, setTabsLoading] = useState(true);
   const [chatChannelStatus, setChatChannelStatus] = useState<string>("CONNECTING");
 
   // Chat
@@ -134,7 +135,6 @@ export default function BatchWorkspace() {
   const [reactionsViewerMsg, setReactionsViewerMsg] = useState<ChatMessage | null>(null);
   const [messageToDelete, setMessageToDelete] = useState<string | null>(null);
   const [editingMessage, setEditingMessage] = useState<ChatMessage | null>(null);
-  // Default true: until we scroll to bottom for the first time, show the button
   const [showScrollDown, setShowScrollDown] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -179,84 +179,75 @@ export default function BatchWorkspace() {
     }
   };
 
-  // Load initial data
+  // Load initial data — split into critical + lazy
   useEffect(() => {
-    if (!batchId) return;
+    if (!batchId || !currentUserId) return;
     const init = async () => {
       try {
-        const {
-          data: { user },
-        } = await supabase.auth.getUser();
-        if (!user) return;
-        setCurrentUserId(user.id);
-
-        // Phase 1: profile + batch info (needed for further queries)
-        const [profileRes, batchRes, countRes] = await Promise.all([
-          supabase.from("profiles").select("full_name, role").eq("user_id", user.id).single(),
+        // ── Stage 1: Critical path — batch info + messages ──
+        const [batchRes, countRes, msgsRes] = await Promise.all([
           supabase.from("batches").select("*").eq("id", batchId).single(),
           supabase.from("students_batches").select("id", { count: "exact" }).eq("batch_id", batchId),
+          supabase.from("batch_messages").select("*").eq("batch_id", batchId).order("created_at", { ascending: true }).limit(100),
         ]);
 
-        if (profileRes.data) {
-          setCurrentUserName(profileRes.data.full_name);
-          setCurrentUserRole(profileRes.data.role);
-        }
         if (batchRes.data) setBatch(batchRes.data);
         setStudentCount(countRes.count || 0);
-
-        // Phase 2: all remaining queries in parallel
-        const [msgsRes, enrollRes, annsRes, testRes, dppRes] = await Promise.all([
-          supabase.from("batch_messages").select("*").eq("batch_id", batchId).order("created_at", { ascending: true }).limit(100),
-          supabase.from("students_batches").select("student_id").eq("batch_id", batchId),
-          supabase.from("announcements").select("*").eq("batch_id", batchId).order("created_at", { ascending: false }),
-          supabase.from("test_scores").select("*").eq("batch_id", batchId).order("test_date", { ascending: false }),
-          supabase.from("homeworks").select("id, title, description, file_url, file_name, link_url, teacher_name, created_at").eq("batch_id", batchId).order("created_at", { ascending: false }),
-        ]);
-
         if (msgsRes.data) {
           setMessages(
             msgsRes.data.map((m) => ({
               ...m,
               reactions: (m.reactions ?? {}) as Record<string, string[]>,
-              isSelf: m.sender_id === user.id,
+              isSelf: m.sender_id === currentUserId,
             })),
           );
         }
+        setCriticalLoading(false); // ← UI renders HERE — user sees chat
 
-        setAnnouncements(annsRes.data || []);
-        setTests(testRes.data || []);
-        setDppItems((dppRes.data || []).map((d) => ({ ...d, posted_by_name: d.teacher_name ?? "" })));
-
-        // Students + attendance
-        const enrollments = enrollRes.data;
-        if (enrollments && enrollments.length > 0) {
-          const ids = enrollments.map((e) => e.student_id);
-          const [studentProfilesRes, todayAttRes] = await Promise.all([
-            supabase.from("profiles").select("user_id, full_name").in("user_id", ids),
-            supabase.from("attendance").select("student_id, present").eq("batch_id", batchId).eq("date", new Date().toISOString().split("T")[0]).in("student_id", ids),
+        // ── Stage 2: Lazy (fire-and-forget) ──
+        const lazyLoad = async () => {
+          const [enrollRes, annsRes, testRes, dppRes] = await Promise.all([
+            supabase.from("students_batches").select("student_id").eq("batch_id", batchId),
+            supabase.from("announcements").select("*").eq("batch_id", batchId).order("created_at", { ascending: false }),
+            supabase.from("test_scores").select("*").eq("batch_id", batchId).order("test_date", { ascending: false }),
+            supabase.from("homeworks").select("id, title, description, file_url, file_name, link_url, teacher_name, created_at").eq("batch_id", batchId).order("created_at", { ascending: false }),
           ]);
 
-          const mapped = (studentProfilesRes.data || []).map((s) => ({
-            id: s.user_id,
-            user_id: s.user_id,
-            full_name: s.full_name,
-          }));
-          setStudents(mapped);
+          setAnnouncements(annsRes.data || []);
+          setTests(testRes.data || []);
+          setDppItems((dppRes.data || []).map((d) => ({ ...d, posted_by_name: d.teacher_name ?? "" })));
 
-          const attMap: Record<string, boolean> = {};
-          mapped.forEach((s) => { attMap[s.id] = false; });
-          (todayAttRes.data || []).forEach((a) => { attMap[a.student_id] = a.present; });
-          setAttendance(attMap);
-        }
+          const enrollments = enrollRes.data;
+          if (enrollments && enrollments.length > 0) {
+            const ids = enrollments.map((e) => e.student_id);
+            const [studentProfilesRes, todayAttRes] = await Promise.all([
+              supabase.from("profiles").select("user_id, full_name").in("user_id", ids),
+              supabase.from("attendance").select("student_id, present").eq("batch_id", batchId).eq("date", new Date().toISOString().split("T")[0]).in("student_id", ids),
+            ]);
+
+            const mapped = (studentProfilesRes.data || []).map((s) => ({
+              id: s.user_id,
+              user_id: s.user_id,
+              full_name: s.full_name,
+            }));
+            setStudents(mapped);
+
+            const attMap: Record<string, boolean> = {};
+            mapped.forEach((s) => { attMap[s.id] = false; });
+            (todayAttRes.data || []).forEach((a) => { attMap[a.student_id] = a.present; });
+            setAttendance(attMap);
+          }
+          setTabsLoading(false);
+        };
+        lazyLoad(); // intentionally not awaited
       } catch (err) {
         console.error("[BatchWorkspace] init error:", err);
       } finally {
-        // B-21: Always stop loading even if a query fails
-        setLoading(false);
+        setCriticalLoading(false);
       }
     };
     init();
-  }, [batchId]);
+  }, [batchId, currentUserId]);
 
   // Realtime chat subscription
   useEffect(() => {
