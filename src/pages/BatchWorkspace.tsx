@@ -202,13 +202,14 @@ export default function BatchWorkspace() {
         if (batchRes.data) setBatch(batchRes.data);
         setStudentCount(countRes.count || 0);
         if (msgsRes.data) {
-          setMessages(
-            msgsRes.data.map((m) => ({
-              ...m,
-              reactions: (m.reactions ?? {}) as Record<string, string[]>,
-              isSelf: m.sender_id === currentUserId,
-            })),
-          );
+          const mapped = msgsRes.data.reverse().map((m) => ({
+            ...m,
+            reactions: (m.reactions ?? {}) as Record<string, string[]>,
+            isSelf: m.sender_id === currentUserId,
+          }));
+          setMessages(mapped);
+          saveCachedMessages(batchCacheKey, mapped);
+          setHasMoreMsgs(msgsRes.data.length === BATCH_MSG_PAGE_SIZE);
         }
         setCriticalLoading(false); // ← UI renders HERE — user sees chat
 
