@@ -8,6 +8,8 @@ import {
   MessageSquare
 } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { fetchAdminHubData, fetchTeacherHubData, fetchStudentHubData, HUB_STALE_TIME } from "@/lib/hubQueries";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import InstallButton from "@/components/InstallButton";
