@@ -5,7 +5,7 @@ import {
   FlaskConical, IndianRupee, GraduationCap, Settings,
   LogOut, Zap, ChevronLeft, Menu, X, ShieldCheck,
   BookOpen, Trophy, ClipboardList, UserCircle, BookMarked, PlusCircle, Download,
-  MessageSquare
+  MessageSquare, RefreshCw
 } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -326,6 +326,17 @@ export default function DashboardLayout({ children, title, role = "admin" }: Das
             {title && <h1 className="font-display font-semibold text-base sm:text-lg truncate">{title}</h1>}
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="w-9 h-9"
+              onClick={() => {
+                queryClient.invalidateQueries();
+              }}
+              title="Refresh data"
+            >
+              <RefreshCw className="w-4 h-4" />
+            </Button>
             <ThemeToggle showLabel className="hidden sm:flex" />
             <ThemeToggle className="sm:hidden" />
             <InstallButton />
