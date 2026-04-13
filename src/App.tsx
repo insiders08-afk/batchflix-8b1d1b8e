@@ -64,6 +64,7 @@ const queryClient = new QueryClient();
 const App = () => (
   <ErrorBoundary>
     <ThemeProvider attribute="class" defaultTheme="light" enableSystem={false} storageKey="batchhub-theme">
+    <AuthProvider>
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <Toaster />
