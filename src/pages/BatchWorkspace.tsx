@@ -196,7 +196,7 @@ export default function BatchWorkspace() {
         const [batchRes, countRes, msgsRes] = await Promise.all([
           supabase.from("batches").select("*").eq("id", batchId).single(),
           supabase.from("students_batches").select("id", { count: "exact" }).eq("batch_id", batchId),
-          supabase.from("batch_messages").select("*").eq("batch_id", batchId).order("created_at", { ascending: true }).limit(100),
+          supabase.from("batch_messages").select("*").eq("batch_id", batchId).order("created_at", { ascending: false }).limit(BATCH_MSG_PAGE_SIZE),
         ]);
 
         if (batchRes.data) setBatch(batchRes.data);
