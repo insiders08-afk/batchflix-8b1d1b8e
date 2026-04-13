@@ -8,6 +8,7 @@ import { ChatListItem } from "@/components/chat/ChatListItem";
 import { ChatSearchBar } from "@/components/chat/ChatSearchBar";
 import { useDMList } from "@/hooks/useDMList";
 import { useBatchLastMessages } from "@/hooks/useBatchLastMessages";
+import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 
 type Tab = "all" | "admin_dm" | "teachers";
@@ -37,43 +38,28 @@ function useDebounce<T>(value: T, delay = 300): T {
 
 export default function StudentChatHub() {
   const navigate = useNavigate();
+  const { authUser } = useAuth();
   const [activeTab, setActiveTab] = useState<Tab>("all");
   const [search, setSearch] = useState("");
-  const [currentUserId, setCurrentUserId] = useState("");
-  const [instituteCode, setInstituteCode] = useState("");
-  const [instituteName, setInstituteName] = useState("");
   const [batches, setBatches] = useState<Batch[]>([]);
   const [adminProfile, setAdminProfile] = useState<AdminProfile | null>(null);
   const [pageLoading, setPageLoading] = useState(true);
   const [startingDM, setStartingDM] = useState(false);
 
+  const currentUserId = authUser?.userId ?? "";
+  const instituteCode = authUser?.instituteCode ?? "";
+  const instituteName = authUser?.instituteName ?? "";
+
   const debouncedSearch = useDebounce(search, 250);
 
   useEffect(() => {
+    if (!instituteCode || !currentUserId) return;
     const init = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-      setCurrentUserId(user.id);
-
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("institute_code")
-        .eq("user_id", user.id)
-        .eq("role", "student")
-        .maybeSingle();
-      if (!profile?.institute_code) return;
-      const ic = profile.institute_code;
-      setInstituteCode(ic);
-
-      const [instRes, enrollRes, adminRes] = await Promise.all([
-        supabase.from("institutes").select("institute_name, city").eq("institute_code", ic).single(),
-        supabase.from("students_batches").select("batch_id").eq("student_id", user.id),
-        supabase.from("profiles").select("user_id, full_name").eq("institute_code", ic).eq("role", "admin").limit(1).single(),
+      const [enrollRes, adminRes] = await Promise.all([
+        supabase.from("students_batches").select("batch_id").eq("student_id", currentUserId),
+        supabase.from("profiles").select("user_id, full_name").eq("institute_code", instituteCode).eq("role", "admin").limit(1).single(),
       ]);
 
-      if (instRes.data) {
-        setInstituteName(`${instRes.data.institute_name}${instRes.data.city ? ", " + instRes.data.city : ""}`);
-      }
       if (adminRes.data) setAdminProfile(adminRes.data);
 
       if (enrollRes.data && enrollRes.data.length > 0) {
@@ -90,7 +76,7 @@ export default function StudentChatHub() {
       setPageLoading(false);
     };
     init();
-  }, []);
+  }, [instituteCode, currentUserId]);
 
   const { batchLastMsgs } = useBatchLastMessages(instituteCode);
 
