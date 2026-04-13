@@ -110,6 +110,35 @@ export default function DashboardLayout({ children, title, role = "admin" }: Das
     instituteCode: showBottomNav ? (instituteCode ?? "") : "",
   });
 
+  // ── Phase B: Prefetch hub data so Chat opens instantly ────
+  const queryClient = useQueryClient();
+  useEffect(() => {
+    if (!authUser?.instituteCode) return;
+    const ic = authUser.instituteCode;
+    const uid = authUser.userId;
+    const r = authUser.userRole;
+
+    if (r === "admin") {
+      queryClient.prefetchQuery({
+        queryKey: ["admin-hub", ic],
+        queryFn: fetchAdminHubData(ic),
+        staleTime: HUB_STALE_TIME,
+      });
+    } else if (r === "teacher") {
+      queryClient.prefetchQuery({
+        queryKey: ["teacher-hub", ic, uid],
+        queryFn: fetchTeacherHubData(ic, uid),
+        staleTime: HUB_STALE_TIME,
+      });
+    } else if (r === "student") {
+      queryClient.prefetchQuery({
+        queryKey: ["student-hub", ic, uid],
+        queryFn: fetchStudentHubData(ic, uid),
+        staleTime: HUB_STALE_TIME,
+      });
+    }
+  }, [authUser, queryClient]);
+
   // Fix #29: primary paths that appear in BottomNav — hide from mobile hamburger sidebar
   const bottomNavPaths = showBottomNav
     ? new Set([`/${role}`, `/${role}/attendance`, `/${role}/chat`])
