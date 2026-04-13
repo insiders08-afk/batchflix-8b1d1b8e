@@ -1,33 +1,45 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useEffect, useCallback, useRef } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import type { BatchLastMessage } from "@/types/chat";
+import { saveHubCache, loadHubCache } from "@/lib/hubCache";
 
-/**
- * Hook that fetches batch last messages and subscribes to realtime
- * updates on `batch_messages` so the chat hub list stays current.
- */
+const STALE_TIME = 5 * 60 * 1000;
+
+async function fetchBatchLastMsgs(instituteCode: string): Promise<Record<string, BatchLastMessage>> {
+  if (!instituteCode) return {};
+  const { data } = await supabase.rpc("get_batch_last_messages", {
+    p_institute_code: instituteCode,
+  });
+  const map: Record<string, BatchLastMessage> = {};
+  (data || []).forEach((row: BatchLastMessage) => {
+    map[row.batch_id] = row;
+  });
+  saveHubCache(`batch_last_msgs_${instituteCode}`, map);
+  return map;
+}
+
 export function useBatchLastMessages(instituteCode: string) {
-  const [batchLastMsgs, setBatchLastMsgs] = useState<Record<string, BatchLastMessage>>({});
+  const queryClient = useQueryClient();
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 
-  const fetchBatchLastMsgs = useCallback(async () => {
-    if (!instituteCode) return;
-    const { data } = await supabase.rpc("get_batch_last_messages", {
-      p_institute_code: instituteCode,
-    });
-    const map: Record<string, BatchLastMessage> = {};
-    (data || []).forEach((row: BatchLastMessage) => {
-      map[row.batch_id] = row;
-    });
-    setBatchLastMsgs(map);
-  }, [instituteCode]);
+  const queryKey = ["batch-last-msgs", instituteCode];
+  const cacheKey = `batch_last_msgs_${instituteCode}`;
 
-  // Initial fetch
-  useEffect(() => {
-    fetchBatchLastMsgs();
-  }, [fetchBatchLastMsgs]);
+  const { data: batchLastMsgs = {} } = useQuery<Record<string, BatchLastMessage>>({
+    queryKey,
+    queryFn: () => fetchBatchLastMsgs(instituteCode),
+    staleTime: STALE_TIME,
+    gcTime: 10 * 60 * 1000,
+    enabled: !!instituteCode,
+    placeholderData: loadHubCache<Record<string, BatchLastMessage>>(cacheKey) || {},
+  });
 
-  // Realtime: listen for any batch_messages changes in this institute
+  const refetch = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey });
+  }, [queryClient, queryKey]);
+
+  // Realtime subscription
   useEffect(() => {
     if (!instituteCode) return;
 
@@ -36,21 +48,12 @@ export function useBatchLastMessages(instituteCode: string) {
       channelRef.current = null;
     }
 
-    const channelName = `batch-msgs-hub-${instituteCode}-${Date.now()}`;
     const channel = supabase
-      .channel(channelName)
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "batch_messages",
-          filter: `institute_code=eq.${instituteCode}`,
-        },
-        () => {
-          fetchBatchLastMsgs();
-        }
-      )
+      .channel(`batch-msgs-hub-${instituteCode}-${Date.now()}`)
+      .on("postgres_changes", {
+        event: "*", schema: "public", table: "batch_messages",
+        filter: `institute_code=eq.${instituteCode}`,
+      }, () => refetch())
       .subscribe();
 
     channelRef.current = channel;
@@ -59,17 +62,17 @@ export function useBatchLastMessages(instituteCode: string) {
       supabase.removeChannel(channel);
       channelRef.current = null;
     };
-  }, [instituteCode, fetchBatchLastMsgs]);
+  }, [instituteCode, refetch]);
 
-  // Refetch on visibility change (coming back from a DM/batch)
+  // Refetch on tab visibility
   useEffect(() => {
     if (!instituteCode) return;
     const handleVis = () => {
-      if (document.visibilityState === "visible") fetchBatchLastMsgs();
+      if (document.visibilityState === "visible") refetch();
     };
     document.addEventListener("visibilitychange", handleVis);
     return () => document.removeEventListener("visibilitychange", handleVis);
-  }, [instituteCode, fetchBatchLastMsgs]);
+  }, [instituteCode, refetch]);
 
-  return { batchLastMsgs, refetchBatchLastMsgs: fetchBatchLastMsgs };
+  return { batchLastMsgs, refetchBatchLastMsgs: refetch };
 }
