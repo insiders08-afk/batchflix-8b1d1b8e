@@ -51,6 +51,9 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { sendPushNotification, getBatchStudentIds } from "@/lib/pushNotifications";
 import { formatChatDate, getMessagePreview, timeAgo } from "@/lib/chatUtils";
+import { saveCachedMessages, loadCachedMessages } from "@/lib/chatCache";
+
+const BATCH_MSG_PAGE_SIZE = 50;
 
 interface BatchInfo {
   id: string;
@@ -126,7 +129,12 @@ export default function BatchWorkspace() {
   const [chatChannelStatus, setChatChannelStatus] = useState<string>("CONNECTING");
 
   // Chat
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const batchCacheKey = `batch_${batchId}`;
+  const [messages, setMessages] = useState<ChatMessage[]>(() =>
+    loadCachedMessages<ChatMessage>(batchCacheKey)
+  );
+  const [hasMoreMsgs, setHasMoreMsgs] = useState(true);
+  const [loadingMoreMsgs, setLoadingMoreMsgs] = useState(false);
   const [chatInput, setChatInput] = useState("");
   const [sendingMsg, setSendingMsg] = useState(false);
   const [attachedFile, setAttachedFile] = useState<File | null>(null);
@@ -188,19 +196,20 @@ export default function BatchWorkspace() {
         const [batchRes, countRes, msgsRes] = await Promise.all([
           supabase.from("batches").select("*").eq("id", batchId).single(),
           supabase.from("students_batches").select("id", { count: "exact" }).eq("batch_id", batchId),
-          supabase.from("batch_messages").select("*").eq("batch_id", batchId).order("created_at", { ascending: true }).limit(100),
+          supabase.from("batch_messages").select("*").eq("batch_id", batchId).order("created_at", { ascending: false }).limit(BATCH_MSG_PAGE_SIZE),
         ]);
 
         if (batchRes.data) setBatch(batchRes.data);
         setStudentCount(countRes.count || 0);
         if (msgsRes.data) {
-          setMessages(
-            msgsRes.data.map((m) => ({
-              ...m,
-              reactions: (m.reactions ?? {}) as Record<string, string[]>,
-              isSelf: m.sender_id === currentUserId,
-            })),
-          );
+          const mapped = msgsRes.data.reverse().map((m) => ({
+            ...m,
+            reactions: (m.reactions ?? {}) as Record<string, string[]>,
+            isSelf: m.sender_id === currentUserId,
+          }));
+          setMessages(mapped);
+          saveCachedMessages(batchCacheKey, mapped);
+          setHasMoreMsgs(msgsRes.data.length === BATCH_MSG_PAGE_SIZE);
         }
         setCriticalLoading(false); // ← UI renders HERE — user sees chat
 
@@ -249,6 +258,35 @@ export default function BatchWorkspace() {
     init();
   }, [batchId, currentUserId]);
 
+  // Load older batch messages (scroll-up pagination)
+  const loadOlderBatchMessages = useCallback(async () => {
+    if (!batchId || loadingMoreMsgs || !hasMoreMsgs) return;
+    setLoadingMoreMsgs(true);
+    const oldest = messages[0];
+    if (!oldest) { setLoadingMoreMsgs(false); return; }
+
+    const { data } = await supabase
+      .from("batch_messages")
+      .select("*")
+      .eq("batch_id", batchId)
+      .lt("created_at", oldest.created_at)
+      .order("created_at", { ascending: false })
+      .limit(BATCH_MSG_PAGE_SIZE);
+
+    if (data) {
+      const mapped = data.reverse().map((m) => ({
+        ...m,
+        reactions: (m.reactions ?? {}) as Record<string, string[]>,
+        isSelf: m.sender_id === currentUserId,
+      }));
+      setMessages((prev) => [...mapped, ...prev]);
+      setHasMoreMsgs(data.length === BATCH_MSG_PAGE_SIZE);
+    } else {
+      setHasMoreMsgs(false);
+    }
+    setLoadingMoreMsgs(false);
+  }, [batchId, currentUserId, messages, loadingMoreMsgs, hasMoreMsgs]);
+
   // Realtime chat subscription
   useEffect(() => {
     if (!batchId) return;
@@ -261,7 +299,7 @@ export default function BatchWorkspace() {
           const msg = payload.new as ChatMessage;
           setMessages((prev) => {
             if (prev.some((m) => m.id === msg.id)) return prev;
-            return [
+            const next = [
               ...prev,
               {
                 ...msg,
@@ -269,6 +307,8 @@ export default function BatchWorkspace() {
                 isSelf: msg.sender_id === currentUserId,
               },
             ];
+            saveCachedMessages(batchCacheKey, next);
+            return next;
           });
         },
       )
@@ -792,10 +832,23 @@ export default function BatchWorkspace() {
               onScroll={(e) => {
                 const target = e.currentTarget;
                 const distFromBottom = target.scrollHeight - target.scrollTop - target.clientHeight;
-                // Show button if more than 100px from bottom (not just near-bottom)
                 setShowScrollDown(distFromBottom > 100);
+                // Load older messages when scrolled to top
+                if (target.scrollTop < 60 && hasMoreMsgs && !loadingMoreMsgs) {
+                  loadOlderBatchMessages();
+                }
               }}
             >
+              {/* Load more indicator */}
+              {loadingMoreMsgs && (
+                <div className="flex justify-center py-2">
+                  <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+                </div>
+              )}
+              {!hasMoreMsgs && messages.length > 0 && (
+                <p className="text-center text-xs text-muted-foreground py-2">Beginning of conversation</p>
+              )}
+
               {messages.length === 0 && (
                 <div className="text-center py-12 text-muted-foreground">
                   <MessageSquare className="w-8 h-8 mx-auto mb-2 opacity-30" />

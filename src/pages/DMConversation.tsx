@@ -108,6 +108,9 @@ export default function DMConversation() {
   const {
     messages,
     loading: msgsLoading,
+    loadingMore,
+    hasMore,
+    loadOlderMessages,
     sendMessage,
     editMessage,
     deleteMessage,
@@ -329,8 +332,22 @@ export default function DMConversation() {
         onScroll={(e) => {
           const t = e.currentTarget;
           setShowScrollDown(t.scrollHeight - t.scrollTop - t.clientHeight > 100);
+          // Load older messages when scrolled to top
+          if (t.scrollTop < 60 && hasMore && !loadingMore) {
+            loadOlderMessages();
+          }
         }}
       >
+        {/* Load more indicator */}
+        {loadingMore && (
+          <div className="flex justify-center py-2">
+            <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+          </div>
+        )}
+        {!hasMore && messages.length > 0 && (
+          <p className="text-center text-xs text-muted-foreground py-2">Beginning of conversation</p>
+        )}
+
         {messages.length === 0 && (
           <div className="text-center py-16 text-muted-foreground">
             <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center mx-auto mb-3">
