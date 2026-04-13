@@ -10,6 +10,7 @@ import { useDMList } from "@/hooks/useDMList";
 import { useBatchLastMessages } from "@/hooks/useBatchLastMessages";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
+import { saveHubCache, loadHubCache } from "@/lib/hubCache";
 
 type Tab = "all" | "admin_dm" | "students";
 
@@ -46,9 +47,10 @@ export default function TeacherChatHub() {
   const { authUser } = useAuth();
   const [activeTab, setActiveTab] = useState<Tab>("all");
   const [search, setSearch] = useState("");
-  const [batches, setBatches] = useState<Batch[]>([]);
-  const [adminProfile, setAdminProfile] = useState<AdminProfile | null>(null);
-  const [pageLoading, setPageLoading] = useState(true);
+  const [batches, setBatches] = useState<Batch[]>(() => loadHubCache<Batch[]>("teacher_batches") || []);
+  const [adminProfile, setAdminProfile] = useState<AdminProfile | null>(() => loadHubCache<AdminProfile>("teacher_admin") || null);
+  const cachedData = batches.length > 0 || adminProfile !== null;
+  const [pageLoading, setPageLoading] = useState(!cachedData);
   const [startingDM, setStartingDM] = useState(false);
 
   const currentUserId = authUser?.userId ?? "";
@@ -73,7 +75,11 @@ export default function TeacherChatHub() {
       ]);
 
       setBatches(batchRes.data || []);
-      if (adminRes.data) setAdminProfile(adminRes.data);
+      saveHubCache("teacher_batches", batchRes.data || []);
+      if (adminRes.data) {
+        setAdminProfile(adminRes.data);
+        saveHubCache("teacher_admin", adminRes.data);
+      }
       setPageLoading(false);
     };
     init();
