@@ -10,6 +10,7 @@ import { useDMList } from "@/hooks/useDMList";
 import { useBatchLastMessages } from "@/hooks/useBatchLastMessages";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
+import { saveHubCache, loadHubCache } from "@/lib/hubCache";
 
 type Tab = "all" | "admin_dm" | "teachers";
 
@@ -41,9 +42,10 @@ export default function StudentChatHub() {
   const { authUser } = useAuth();
   const [activeTab, setActiveTab] = useState<Tab>("all");
   const [search, setSearch] = useState("");
-  const [batches, setBatches] = useState<Batch[]>([]);
-  const [adminProfile, setAdminProfile] = useState<AdminProfile | null>(null);
-  const [pageLoading, setPageLoading] = useState(true);
+  const [batches, setBatches] = useState<Batch[]>(() => loadHubCache<Batch[]>("student_batches") || []);
+  const [adminProfile, setAdminProfile] = useState<AdminProfile | null>(() => loadHubCache<AdminProfile>("student_admin") || null);
+  const cachedData = batches.length > 0 || adminProfile !== null;
+  const [pageLoading, setPageLoading] = useState(!cachedData);
   const [startingDM, setStartingDM] = useState(false);
 
   const currentUserId = authUser?.userId ?? "";
@@ -60,7 +62,10 @@ export default function StudentChatHub() {
         supabase.from("profiles").select("user_id, full_name").eq("institute_code", instituteCode).eq("role", "admin").limit(1).single(),
       ]);
 
-      if (adminRes.data) setAdminProfile(adminRes.data);
+      if (adminRes.data) {
+        setAdminProfile(adminRes.data);
+        saveHubCache("student_admin", adminRes.data);
+      }
 
       if (enrollRes.data && enrollRes.data.length > 0) {
         const batchIds = enrollRes.data.map((e) => e.batch_id);
@@ -71,6 +76,7 @@ export default function StudentChatHub() {
           .eq("is_active", true)
           .order("updated_at", { ascending: false });
         setBatches(batchData || []);
+        saveHubCache("student_batches", batchData || []);
       }
 
       setPageLoading(false);
