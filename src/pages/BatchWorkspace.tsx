@@ -897,7 +897,10 @@ export default function BatchWorkspace() {
                               <img
                                 src={msg.file_url}
                                 alt={msg.file_name || "image"}
-                                className="max-w-[200px] max-h-[160px] rounded-lg object-cover border border-white/20"
+                                 className="max-w-[200px] max-h-[160px] rounded-lg object-cover border border-white/20"
+                                 loading="lazy"
+                                 width={200}
+                                 height={160}
                                 // When image loads it shifts layout — scroll to keep at bottom if user was there
                                 onLoad={() => {
                                   const container = chatContainerRef.current;
