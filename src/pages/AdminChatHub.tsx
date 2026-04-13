@@ -1,6 +1,6 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { Loader2, MessageSquare, Users, GraduationCap, LayoutList } from "lucide-react";
+import { MessageSquare, Users, GraduationCap, LayoutList } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
 import DashboardLayout from "@/components/DashboardLayout";
@@ -11,58 +11,47 @@ import { useBatchLastMessages } from "@/hooks/useBatchLastMessages";
 import { useAuth } from "@/contexts/AuthContext";
 import type { DirectConversation } from "@/types/chat";
 import { saveHubCache, loadHubCache } from "@/lib/hubCache";
+import { useQuery } from "@tanstack/react-query";
+import { fetchAdminHubData, HUB_STALE_TIME, HUB_GC_TIME } from "@/lib/hubQueries";
+import type { AdminHubData, HubBatch, HubUserProfile } from "@/lib/hubQueries";
 
 type Tab = "all" | "batches" | "teachers" | "students";
-
-interface Batch {
-  id: string;
-  name: string;
-  course: string;
-  teacher_name: string | null;
-  updated_at: string | null;
-}
-
-interface UserProfile {
-  user_id: string;
-  full_name: string;
-  role: string;
-}
 
 export default function AdminChatHub() {
   const navigate = useNavigate();
   const { authUser } = useAuth();
   const [activeTab, setActiveTab] = useState<Tab>("all");
   const [search, setSearch] = useState("");
-  const [batches, setBatches] = useState<Batch[]>(() => loadHubCache<Batch[]>("admin_batches") || []);
-  const [teachers, setTeachers] = useState<UserProfile[]>(() => loadHubCache<UserProfile[]>("admin_teachers") || []);
-  const [students, setStudents] = useState<UserProfile[]>(() => loadHubCache<UserProfile[]>("admin_students") || []);
-  const cachedData = batches.length > 0 || teachers.length > 0 || students.length > 0;
-  const [pageLoading, setPageLoading] = useState(!cachedData);
 
   const currentUserId = authUser?.userId ?? "";
   const instituteCode = authUser?.instituteCode ?? "";
   const instituteName = authUser?.instituteName ?? "";
 
-  // ── Load data (auth comes from context — no getUser/profile fetch) ──
-  useEffect(() => {
-    if (!instituteCode) return;
-    const init = async () => {
-      const [batchRes, teacherRes, studentRes] = await Promise.all([
-        supabase.from("batches").select("id, name, course, teacher_name, updated_at").eq("institute_code", instituteCode).eq("is_active", true).order("updated_at", { ascending: false }),
-        supabase.from("profiles").select("user_id, full_name, role").eq("institute_code", instituteCode).eq("role", "teacher").order("full_name"),
-        supabase.from("profiles").select("user_id, full_name, role").eq("institute_code", instituteCode).eq("role", "student").order("full_name"),
-      ]);
+  // ── React Query for hub data ──────────────────────────────
+  const { data, isLoading } = useQuery<AdminHubData>({
+    queryKey: ["admin-hub", instituteCode],
+    queryFn: fetchAdminHubData(instituteCode),
+    staleTime: HUB_STALE_TIME,
+    gcTime: HUB_GC_TIME,
+    enabled: !!instituteCode,
+    placeholderData: {
+      batches: loadHubCache<HubBatch[]>("admin_batches") || [],
+      teachers: loadHubCache<HubUserProfile[]>("admin_teachers") || [],
+      students: loadHubCache<HubUserProfile[]>("admin_students") || [],
+    },
+  });
 
-      setBatches(batchRes.data || []);
-      setTeachers(teacherRes.data || []);
-      setStudents(studentRes.data || []);
-      saveHubCache("admin_batches", batchRes.data || []);
-      saveHubCache("admin_teachers", teacherRes.data || []);
-      saveHubCache("admin_students", studentRes.data || []);
-      setPageLoading(false);
-    };
-    init();
-  }, [instituteCode]);
+  const batches = data?.batches || [];
+  const teachers = data?.teachers || [];
+  const students = data?.students || [];
+
+  // Sync to hubCache when data changes
+  useEffect(() => {
+    if (!data) return;
+    saveHubCache("admin_batches", data.batches);
+    saveHubCache("admin_teachers", data.teachers);
+    saveHubCache("admin_students", data.students);
+  }, [data]);
 
   // ── Realtime batch last messages ──────────────────────────
   const { batchLastMsgs } = useBatchLastMessages(instituteCode);
@@ -163,11 +152,33 @@ export default function AdminChatHub() {
       );
   }, [batches, batchLastMsgs, conversations, teachers, students, navigate, q]);
 
-  if (pageLoading) {
+  // ── Skeleton loading state ────────────────────────────────
+  if (isLoading && !data) {
     return (
       <DashboardLayout title="Chats" role="admin">
-        <div className="flex items-center justify-center h-64">
-          <Loader2 className="w-6 h-6 animate-spin text-primary" />
+        <div className="-m-3 sm:-m-4 md:-m-6 flex flex-col h-full min-h-[calc(100vh-60px)]">
+          <div className="px-4 pt-4 pb-3 border-b border-border/40 bg-card/80">
+            <div className="h-5 bg-muted rounded animate-pulse w-32 mb-2" />
+            <div className="h-3 bg-muted rounded animate-pulse w-44" />
+            <div className="mt-3 h-9 bg-muted rounded-lg animate-pulse" />
+            <div className="flex gap-1 mt-3">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className="h-7 bg-muted rounded-full animate-pulse w-20" />
+              ))}
+            </div>
+          </div>
+          <div className="divide-y divide-border/30">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="flex items-center gap-3 px-4 py-3.5">
+                <div className="w-10 h-10 rounded-full bg-muted animate-pulse flex-shrink-0" />
+                <div className="flex-1 space-y-2">
+                  <div className="h-3 bg-muted rounded animate-pulse w-28" />
+                  <div className="h-2.5 bg-muted rounded animate-pulse w-40" />
+                </div>
+                <div className="h-2 bg-muted rounded animate-pulse w-8 flex-shrink-0" />
+              </div>
+            ))}
+          </div>
         </div>
       </DashboardLayout>
     );
@@ -216,115 +227,57 @@ export default function AdminChatHub() {
 
         {/* Lists */}
         <div className="flex-1 overflow-y-auto">
-          {/* ── ALL tab ── */}
           {activeTab === "all" && (
             <>
               {allThreads.length === 0 ? (
-                <EmptyState
-                  icon={MessageSquare}
-                  message={
-                    search
-                      ? "No conversations match your search."
-                      : "No conversations yet. Start chatting from the Teachers or Students tabs."
-                  }
-                />
+                <EmptyState icon={MessageSquare} message={search ? "No conversations match your search." : "No conversations yet. Start chatting from the Teachers or Students tabs."} />
               ) : (
                 allThreads.map((t) => (
-                  <ChatListItem
-                    key={t.key}
-                    name={t.name}
-                    subtitle={t.subtitle}
-                    lastMessage={t.lastMessage}
-                    lastMessageAt={t.lastMessageAt}
-                    unreadCount={t.unreadCount}
-                    onClick={t.onClick}
-                    isGroup={t.isGroup}
-                  />
+                  <ChatListItem key={t.key} name={t.name} subtitle={t.subtitle} lastMessage={t.lastMessage} lastMessageAt={t.lastMessageAt} unreadCount={t.unreadCount} onClick={t.onClick} isGroup={t.isGroup} />
                 ))
               )}
             </>
           )}
 
-          {/* ── BATCHES tab ── */}
           {activeTab === "batches" && (
             <>
               {filteredBatches.length === 0 ? (
-                <EmptyState
-                  icon={MessageSquare}
-                  message={search ? "No batches match your search." : "No active batches yet."}
-                />
+                <EmptyState icon={MessageSquare} message={search ? "No batches match your search." : "No active batches yet."} />
               ) : (
                 filteredBatches.map((b) => {
                   const lm = batchLastMsgs[b.id];
                   return (
-                    <ChatListItem
-                      key={b.id}
-                      name={b.name}
-                      subtitle={b.course}
-                      lastMessage={lm?.last_message ?? null}
-                      lastMessageAt={lm?.last_message_at ?? b.updated_at}
-                      unreadCount={0}
-                      onClick={() => navigate(`/batch/${b.id}`)}
-                      isGroup
-                    />
+                    <ChatListItem key={b.id} name={b.name} subtitle={b.course} lastMessage={lm?.last_message ?? null} lastMessageAt={lm?.last_message_at ?? b.updated_at} unreadCount={0} onClick={() => navigate(`/batch/${b.id}`)} isGroup />
                   );
                 })
               )}
             </>
           )}
 
-          {/* ── TEACHERS tab ── */}
           {activeTab === "teachers" && (
             <>
               {filteredTeachers.length === 0 ? (
-                <EmptyState
-                  icon={Users}
-                  message={
-                    search ? "No teachers match your search." : "No teachers in your institute yet."
-                  }
-                />
+                <EmptyState icon={Users} message={search ? "No teachers match your search." : "No teachers in your institute yet."} />
               ) : (
                 filteredTeachers.map((t) => {
                   const conv = convByUser[t.user_id];
                   return (
-                    <ChatListItem
-                      key={t.user_id}
-                      name={t.full_name}
-                      subtitle="Teacher"
-                      lastMessage={conv?.last_message_preview ?? null}
-                      lastMessageAt={conv?.last_message_at ?? null}
-                      unreadCount={conv?.admin_unread_count ?? 0}
-                      onClick={() => openDM(t.user_id, "admin_teacher")}
-                    />
+                    <ChatListItem key={t.user_id} name={t.full_name} subtitle="Teacher" lastMessage={conv?.last_message_preview ?? null} lastMessageAt={conv?.last_message_at ?? null} unreadCount={conv?.admin_unread_count ?? 0} onClick={() => openDM(t.user_id, "admin_teacher")} />
                   );
                 })
               )}
             </>
           )}
 
-          {/* ── STUDENTS tab ── */}
           {activeTab === "students" && (
             <>
               {filteredStudents.length === 0 ? (
-                <EmptyState
-                  icon={GraduationCap}
-                  message={
-                    search ? "No students match your search." : "No students enrolled yet."
-                  }
-                />
+                <EmptyState icon={GraduationCap} message={search ? "No students match your search." : "No students enrolled yet."} />
               ) : (
                 filteredStudents.map((s) => {
                   const conv = convByUser[s.user_id];
                   return (
-                    <ChatListItem
-                      key={s.user_id}
-                      name={s.full_name}
-                      subtitle="Student"
-                      lastMessage={conv?.last_message_preview ?? null}
-                      lastMessageAt={conv?.last_message_at ?? null}
-                      unreadCount={conv?.admin_unread_count ?? 0}
-                      onClick={() => openDM(s.user_id, "admin_student")}
-                    />
+                    <ChatListItem key={s.user_id} name={s.full_name} subtitle="Student" lastMessage={conv?.last_message_preview ?? null} lastMessageAt={conv?.last_message_at ?? null} unreadCount={conv?.admin_unread_count ?? 0} onClick={() => openDM(s.user_id, "admin_student")} />
                   );
                 })
               )}
@@ -336,13 +289,7 @@ export default function AdminChatHub() {
   );
 }
 
-function EmptyState({
-  icon: Icon,
-  message,
-}: {
-  icon: React.ElementType;
-  message: string;
-}) {
+function EmptyState({ icon: Icon, message }: { icon: React.ElementType; message: string }) {
   return (
     <div className="flex flex-col items-center justify-center py-20 text-center px-6">
       <div className="w-14 h-14 rounded-full bg-muted flex items-center justify-center mb-4">
