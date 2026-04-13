@@ -11,22 +11,11 @@ import { useBatchLastMessages } from "@/hooks/useBatchLastMessages";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { saveHubCache, loadHubCache } from "@/lib/hubCache";
+import { useQuery } from "@tanstack/react-query";
+import { fetchStudentHubData, HUB_STALE_TIME, HUB_GC_TIME } from "@/lib/hubQueries";
+import type { StudentHubData, HubBatch, HubUserProfile } from "@/lib/hubQueries";
 
 type Tab = "all" | "admin_dm" | "teachers";
-
-interface Batch {
-  id: string;
-  name: string;
-  course: string;
-  teacher_id: string | null;
-  teacher_name: string | null;
-  updated_at: string | null;
-}
-
-interface AdminProfile {
-  user_id: string;
-  full_name: string;
-}
 
 function useDebounce<T>(value: T, delay = 300): T {
   const [debounced, setDebounced] = useState(value);
@@ -42,10 +31,6 @@ export default function StudentChatHub() {
   const { authUser } = useAuth();
   const [activeTab, setActiveTab] = useState<Tab>("all");
   const [search, setSearch] = useState("");
-  const [batches, setBatches] = useState<Batch[]>(() => loadHubCache<Batch[]>("student_batches") || []);
-  const [adminProfile, setAdminProfile] = useState<AdminProfile | null>(() => loadHubCache<AdminProfile>("student_admin") || null);
-  const cachedData = batches.length > 0 || adminProfile !== null;
-  const [pageLoading, setPageLoading] = useState(!cachedData);
   const [startingDM, setStartingDM] = useState(false);
 
   const currentUserId = authUser?.userId ?? "";
@@ -54,35 +39,28 @@ export default function StudentChatHub() {
 
   const debouncedSearch = useDebounce(search, 250);
 
+  // ── React Query for hub data ──────────────────────────────
+  const { data, isLoading } = useQuery<StudentHubData>({
+    queryKey: ["student-hub", instituteCode, currentUserId],
+    queryFn: fetchStudentHubData(instituteCode, currentUserId),
+    staleTime: HUB_STALE_TIME,
+    gcTime: HUB_GC_TIME,
+    enabled: !!instituteCode && !!currentUserId,
+    placeholderData: {
+      batches: loadHubCache<HubBatch[]>("student_batches") || [],
+      adminProfile: loadHubCache<HubUserProfile>("student_admin") || null,
+    },
+  });
+
+  const batches = data?.batches || [];
+  const adminProfile = data?.adminProfile || null;
+
+  // Sync to hubCache
   useEffect(() => {
-    if (!instituteCode || !currentUserId) return;
-    const init = async () => {
-      const [enrollRes, adminRes] = await Promise.all([
-        supabase.from("students_batches").select("batch_id").eq("student_id", currentUserId),
-        supabase.from("profiles").select("user_id, full_name").eq("institute_code", instituteCode).eq("role", "admin").limit(1).single(),
-      ]);
-
-      if (adminRes.data) {
-        setAdminProfile(adminRes.data);
-        saveHubCache("student_admin", adminRes.data);
-      }
-
-      if (enrollRes.data && enrollRes.data.length > 0) {
-        const batchIds = enrollRes.data.map((e) => e.batch_id);
-        const { data: batchData } = await supabase
-          .from("batches")
-          .select("id, name, course, teacher_id, teacher_name, updated_at")
-          .in("id", batchIds)
-          .eq("is_active", true)
-          .order("updated_at", { ascending: false });
-        setBatches(batchData || []);
-        saveHubCache("student_batches", batchData || []);
-      }
-
-      setPageLoading(false);
-    };
-    init();
-  }, [instituteCode, currentUserId]);
+    if (!data) return;
+    saveHubCache("student_batches", data.batches);
+    if (data.adminProfile) saveHubCache("student_admin", data.adminProfile);
+  }, [data]);
 
   const { batchLastMsgs } = useBatchLastMessages(instituteCode);
 
@@ -159,7 +137,7 @@ export default function StudentChatHub() {
 
     // Merge existing DM data
     teacherDMs.forEach((c) => {
-      const teacherId = c.admin_id; // teacher is admin_id in teacher_student DMs
+      const teacherId = c.admin_id;
       const contact = map.get(teacherId);
       if (contact) {
         contact.conversationId = c.id;
@@ -193,7 +171,6 @@ export default function StudentChatHub() {
       });
     });
 
-    // Admin DMs
     adminDMs.forEach((c) => {
       threads.push({
         key: `dm-${c.id}`, name: adminProfile?.full_name ?? "Admin",
@@ -203,7 +180,6 @@ export default function StudentChatHub() {
       });
     });
 
-    // Teacher DMs
     teacherDMs.forEach((c) => {
       const teacherId = c.admin_id;
       const teacherContact = teacherContacts.find((t) => t.userId === teacherId);
@@ -225,11 +201,33 @@ export default function StudentChatHub() {
       .filter((t) => t.name.toLowerCase().includes(q) || (t.lastMessage ?? "").toLowerCase().includes(q));
   }, [batches, batchLastMsgs, adminDMs, teacherDMs, adminProfile, teacherContacts, navigate, q]);
 
-  if (pageLoading) {
+  // ── Skeleton loading state ────────────────────────────────
+  if (isLoading && !data) {
     return (
       <DashboardLayout title="Chats" role="student">
-        <div className="flex items-center justify-center h-64">
-          <Loader2 className="w-6 h-6 animate-spin text-primary" />
+        <div className="-m-3 sm:-m-4 md:-m-6 flex flex-col h-full min-h-[calc(100vh-60px)]">
+          <div className="px-4 pt-4 pb-3 border-b border-border/40 bg-card/80">
+            <div className="h-5 bg-muted rounded animate-pulse w-32 mb-2" />
+            <div className="h-3 bg-muted rounded animate-pulse w-44" />
+            <div className="mt-3 h-9 bg-muted rounded-lg animate-pulse" />
+            <div className="flex gap-1 mt-3">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <div key={i} className="h-7 bg-muted rounded-full animate-pulse w-20" />
+              ))}
+            </div>
+          </div>
+          <div className="divide-y divide-border/30">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="flex items-center gap-3 px-4 py-3.5">
+                <div className="w-10 h-10 rounded-full bg-muted animate-pulse flex-shrink-0" />
+                <div className="flex-1 space-y-2">
+                  <div className="h-3 bg-muted rounded animate-pulse w-28" />
+                  <div className="h-2.5 bg-muted rounded animate-pulse w-40" />
+                </div>
+                <div className="h-2 bg-muted rounded animate-pulse w-8 flex-shrink-0" />
+              </div>
+            ))}
+          </div>
         </div>
       </DashboardLayout>
     );
@@ -273,7 +271,6 @@ export default function StudentChatHub() {
         </div>
 
         <div className="flex-1 overflow-y-auto">
-          {/* ── ALL TAB ── */}
           {activeTab === "all" && (
             <>
               {allThreads.length === 0 ? (
@@ -286,7 +283,6 @@ export default function StudentChatHub() {
             </>
           )}
 
-          {/* ── ADMIN DM TAB ── */}
           {activeTab === "admin_dm" && (
             <>
               {adminDMs.length === 0 ? (
@@ -320,7 +316,6 @@ export default function StudentChatHub() {
             </>
           )}
 
-          {/* ── TEACHERS TAB ── */}
           {activeTab === "teachers" && (
             <>
               {teacherContacts.length === 0 ? (

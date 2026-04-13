@@ -11,21 +11,11 @@ import { useBatchLastMessages } from "@/hooks/useBatchLastMessages";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { saveHubCache, loadHubCache } from "@/lib/hubCache";
+import { useQuery } from "@tanstack/react-query";
+import { fetchTeacherHubData, HUB_STALE_TIME, HUB_GC_TIME } from "@/lib/hubQueries";
+import type { TeacherHubData, HubBatch, HubUserProfile } from "@/lib/hubQueries";
 
 type Tab = "all" | "admin_dm" | "students";
-
-interface Batch {
-  id: string;
-  name: string;
-  course: string;
-  teacher_name: string | null;
-  updated_at: string | null;
-}
-
-interface AdminProfile {
-  user_id: string;
-  full_name: string;
-}
 
 interface StudentSearchResult {
   user_id: string;
@@ -47,15 +37,34 @@ export default function TeacherChatHub() {
   const { authUser } = useAuth();
   const [activeTab, setActiveTab] = useState<Tab>("all");
   const [search, setSearch] = useState("");
-  const [batches, setBatches] = useState<Batch[]>(() => loadHubCache<Batch[]>("teacher_batches") || []);
-  const [adminProfile, setAdminProfile] = useState<AdminProfile | null>(() => loadHubCache<AdminProfile>("teacher_admin") || null);
-  const cachedData = batches.length > 0 || adminProfile !== null;
-  const [pageLoading, setPageLoading] = useState(!cachedData);
   const [startingDM, setStartingDM] = useState(false);
 
   const currentUserId = authUser?.userId ?? "";
   const instituteCode = authUser?.instituteCode ?? "";
   const instituteName = authUser?.instituteName ?? "";
+
+  // ── React Query for hub data ──────────────────────────────
+  const { data, isLoading } = useQuery<TeacherHubData>({
+    queryKey: ["teacher-hub", instituteCode, currentUserId],
+    queryFn: fetchTeacherHubData(instituteCode, currentUserId),
+    staleTime: HUB_STALE_TIME,
+    gcTime: HUB_GC_TIME,
+    enabled: !!instituteCode && !!currentUserId,
+    placeholderData: {
+      batches: loadHubCache<HubBatch[]>("teacher_batches") || [],
+      adminProfile: loadHubCache<HubUserProfile>("teacher_admin") || null,
+    },
+  });
+
+  const batches = data?.batches || [];
+  const adminProfile = data?.adminProfile || null;
+
+  // Sync to hubCache
+  useEffect(() => {
+    if (!data) return;
+    saveHubCache("teacher_batches", data.batches);
+    if (data.adminProfile) saveHubCache("teacher_admin", data.adminProfile);
+  }, [data]);
 
   // Profile map: userId → full_name (for DM other users)
   const [profileMap, setProfileMap] = useState<Record<string, string>>({});
@@ -65,25 +74,6 @@ export default function TeacherChatHub() {
   const [searchingStudents, setSearchingStudents] = useState(false);
 
   const debouncedSearch = useDebounce(search, 250);
-
-  useEffect(() => {
-    if (!instituteCode || !currentUserId) return;
-    const init = async () => {
-      const [batchRes, adminRes] = await Promise.all([
-        supabase.from("batches").select("id, name, course, teacher_name, updated_at").eq("institute_code", instituteCode).eq("teacher_id", currentUserId).eq("is_active", true).order("updated_at", { ascending: false }),
-        supabase.from("profiles").select("user_id, full_name").eq("institute_code", instituteCode).eq("role", "admin").limit(1).single(),
-      ]);
-
-      setBatches(batchRes.data || []);
-      saveHubCache("teacher_batches", batchRes.data || []);
-      if (adminRes.data) {
-        setAdminProfile(adminRes.data);
-        saveHubCache("teacher_admin", adminRes.data);
-      }
-      setPageLoading(false);
-    };
-    init();
-  }, [instituteCode, currentUserId]);
 
   const { batchLastMsgs } = useBatchLastMessages(instituteCode);
 
@@ -173,7 +163,6 @@ export default function TeacherChatHub() {
 
   const getOtherName = useCallback((c: typeof conversations[0]) => {
     const otherId = c.admin_id === currentUserId ? c.other_user_id : c.admin_id;
-    // For admin DMs, use adminProfile name; otherwise use profileMap
     if (c.dm_type === "admin_teacher") return adminProfile?.full_name ?? profileMap[otherId] ?? "Admin";
     return profileMap[otherId] ?? "Student";
   }, [currentUserId, adminProfile, profileMap]);
@@ -227,11 +216,33 @@ export default function TeacherChatHub() {
       .filter((t) => t.name.toLowerCase().includes(q) || (t.lastMessage ?? "").toLowerCase().includes(q));
   }, [batches, batchLastMsgs, conversations, getOtherName, getUnreadCount, navigate, q]);
 
-  if (pageLoading) {
+  // ── Skeleton loading state ────────────────────────────────
+  if (isLoading && !data) {
     return (
       <DashboardLayout title="Chats" role="teacher">
-        <div className="flex items-center justify-center h-64">
-          <Loader2 className="w-6 h-6 animate-spin text-primary" />
+        <div className="-m-3 sm:-m-4 md:-m-6 flex flex-col h-full min-h-[calc(100vh-60px)]">
+          <div className="px-4 pt-4 pb-3 border-b border-border/40 bg-card/80">
+            <div className="h-5 bg-muted rounded animate-pulse w-32 mb-2" />
+            <div className="h-3 bg-muted rounded animate-pulse w-44" />
+            <div className="mt-3 h-9 bg-muted rounded-lg animate-pulse" />
+            <div className="flex gap-1 mt-3">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <div key={i} className="h-7 bg-muted rounded-full animate-pulse w-20" />
+              ))}
+            </div>
+          </div>
+          <div className="divide-y divide-border/30">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="flex items-center gap-3 px-4 py-3.5">
+                <div className="w-10 h-10 rounded-full bg-muted animate-pulse flex-shrink-0" />
+                <div className="flex-1 space-y-2">
+                  <div className="h-3 bg-muted rounded animate-pulse w-28" />
+                  <div className="h-2.5 bg-muted rounded animate-pulse w-40" />
+                </div>
+                <div className="h-2 bg-muted rounded animate-pulse w-8 flex-shrink-0" />
+              </div>
+            ))}
+          </div>
         </div>
       </DashboardLayout>
     );
@@ -279,7 +290,6 @@ export default function TeacherChatHub() {
         </div>
 
         <div className="flex-1 overflow-y-auto">
-          {/* ── ALL TAB ── */}
           {activeTab === "all" && (
             <>
               {allThreads.length === 0 ? (
@@ -292,7 +302,6 @@ export default function TeacherChatHub() {
             </>
           )}
 
-          {/* ── ADMIN DM TAB ── */}
           {activeTab === "admin_dm" && (
             <>
               {adminDMs.length === 0 ? (
@@ -326,7 +335,6 @@ export default function TeacherChatHub() {
             </>
           )}
 
-          {/* ── STUDENTS TAB ── */}
           {activeTab === "students" && (
             <StudentsTab
               search={debouncedSearch}
@@ -363,7 +371,6 @@ function StudentsTab({
   onOpenDM: (id: string) => void;
   getUnreadCount: (c: any) => number;
 }) {
-  // If searching, show search results
   if (search.length >= 2) {
     if (searchingStudents) {
       return (
@@ -376,7 +383,6 @@ function StudentsTab({
       return <EmptyState icon={Search} message="No students found matching your search." />;
     }
 
-    // Check which students already have an active DM
     const existingDMMap = new Map<string, string>();
     studentDMs.forEach((c) => {
       existingDMMap.set(c.other_user_id, c.id);
@@ -403,7 +409,6 @@ function StudentsTab({
     );
   }
 
-  // Default: show existing student DM conversations
   if (studentDMs.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-20 text-center px-6">
@@ -435,12 +440,6 @@ function StudentsTab({
       })}
     </>
   );
-}
-
-interface StudentSearchResult {
-  user_id: string;
-  full_name: string;
-  role_based_code: string | null;
 }
 
 function EmptyState({ icon: Icon, message }: { icon: React.ElementType; message: string }) {
