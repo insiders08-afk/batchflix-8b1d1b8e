@@ -258,6 +258,35 @@ export default function BatchWorkspace() {
     init();
   }, [batchId, currentUserId]);
 
+  // Load older batch messages (scroll-up pagination)
+  const loadOlderBatchMessages = useCallback(async () => {
+    if (!batchId || loadingMoreMsgs || !hasMoreMsgs) return;
+    setLoadingMoreMsgs(true);
+    const oldest = messages[0];
+    if (!oldest) { setLoadingMoreMsgs(false); return; }
+
+    const { data } = await supabase
+      .from("batch_messages")
+      .select("*")
+      .eq("batch_id", batchId)
+      .lt("created_at", oldest.created_at)
+      .order("created_at", { ascending: false })
+      .limit(BATCH_MSG_PAGE_SIZE);
+
+    if (data) {
+      const mapped = data.reverse().map((m) => ({
+        ...m,
+        reactions: (m.reactions ?? {}) as Record<string, string[]>,
+        isSelf: m.sender_id === currentUserId,
+      }));
+      setMessages((prev) => [...mapped, ...prev]);
+      setHasMoreMsgs(data.length === BATCH_MSG_PAGE_SIZE);
+    } else {
+      setHasMoreMsgs(false);
+    }
+    setLoadingMoreMsgs(false);
+  }, [batchId, currentUserId, messages, loadingMoreMsgs, hasMoreMsgs]);
+
   // Realtime chat subscription
   useEffect(() => {
     if (!batchId) return;
@@ -270,7 +299,7 @@ export default function BatchWorkspace() {
           const msg = payload.new as ChatMessage;
           setMessages((prev) => {
             if (prev.some((m) => m.id === msg.id)) return prev;
-            return [
+            const next = [
               ...prev,
               {
                 ...msg,
@@ -278,6 +307,8 @@ export default function BatchWorkspace() {
                 isSelf: msg.sender_id === currentUserId,
               },
             ];
+            saveCachedMessages(batchCacheKey, next);
+            return next;
           });
         },
       )
