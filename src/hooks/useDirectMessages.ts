@@ -113,7 +113,7 @@ export function useDirectMessages({
           const msg = payload.new as DirectMessage;
           setMessages((prev) => {
             if (prev.some((m) => m.id === msg.id)) return prev;
-            return [
+            const next = [
               ...prev,
               {
                 ...msg,
@@ -121,6 +121,8 @@ export function useDirectMessages({
                 isSelf: msg.sender_id === currentUserId,
               },
             ];
+            saveCachedMessages(cacheKey, next);
+            return next;
           });
         }
       )
@@ -344,6 +346,9 @@ export function useDirectMessages({
   return {
     messages,
     loading,
+    loadingMore,
+    hasMore,
+    loadOlderMessages,
     sendMessage,
     editMessage,
     deleteMessage,
