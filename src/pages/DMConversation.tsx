@@ -272,8 +272,17 @@ export default function DMConversation() {
 
   if (pageLoading || msgsLoading) {
     return (
-      <div className="fixed inset-0 flex items-center justify-center bg-background">
-        <Loader2 className="w-6 h-6 animate-spin text-primary" />
+      <div className="fixed inset-0 flex flex-col bg-background">
+        <header className="border-b border-border/50 bg-card flex items-center gap-3 px-3 h-14 flex-shrink-0">
+          <div className="w-8 h-8 bg-muted rounded-lg animate-pulse" />
+          <div className="flex-1 space-y-1.5">
+            <div className="h-3 bg-muted rounded w-32 animate-pulse" />
+            <div className="h-2.5 bg-muted rounded w-20 animate-pulse" />
+          </div>
+        </header>
+        <div className="flex-1 flex items-center justify-center">
+          <Loader2 className="w-5 h-5 animate-spin text-primary" />
+        </div>
       </div>
     );
   }
