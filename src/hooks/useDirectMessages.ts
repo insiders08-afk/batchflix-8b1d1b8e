@@ -2,8 +2,10 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import type { DirectMessage } from "@/types/chat";
 import { useToast } from "@/hooks/use-toast";
+import { saveCachedMessages, loadCachedMessages } from "@/lib/chatCache";
 
 const MAX_FILE_SIZE_MB = 10;
+const PAGE_SIZE = 50;
 
 interface UseDirectMessagesOptions {
   conversationId: string;
@@ -21,32 +23,68 @@ export function useDirectMessages({
   instituteCode,
 }: UseDirectMessagesOptions) {
   const { toast } = useToast();
-  const [messages, setMessages] = useState<DirectMessage[]>([]);
-  const [loading, setLoading] = useState(true);
+  const cacheKey = `dm_${conversationId}`;
+
+  // Hydrate from cache instantly
+  const [messages, setMessages] = useState<DirectMessage[]>(() =>
+    loadCachedMessages<DirectMessage>(cacheKey)
+  );
+  const [loading, setLoading] = useState(messages.length === 0);
+  const [hasMore, setHasMore] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
-  // B-14: Track realtime channel status
   const [channelStatus, setChannelStatus] = useState<string>("CLOSED");
 
-  // ── Fetch messages ─────────────────────────────────────────
+  // ── Fetch latest messages ─────────────────────────────────
   const fetchMessages = useCallback(async () => {
     if (!conversationId) return;
     const { data } = await supabase
       .from("direct_messages")
       .select("*")
       .eq("conversation_id", conversationId)
-      .order("created_at", { ascending: true })
-      .limit(100);
+      .order("created_at", { ascending: false })
+      .limit(PAGE_SIZE);
     if (data) {
-      setMessages(
-        data.map((m) => ({
-          ...m,
-          reactions: (m.reactions ?? {}) as Record<string, string[]>,
-          isSelf: m.sender_id === currentUserId,
-        }))
-      );
+      const mapped = data.reverse().map((m) => ({
+        ...m,
+        reactions: (m.reactions ?? {}) as Record<string, string[]>,
+        isSelf: m.sender_id === currentUserId,
+      }));
+      setMessages(mapped);
+      saveCachedMessages(cacheKey, mapped);
+      setHasMore(data.length === PAGE_SIZE);
     }
     setLoading(false);
-  }, [conversationId, currentUserId]);
+  }, [conversationId, currentUserId, cacheKey]);
+
+  // ── Load older messages (scroll-up pagination) ────────────
+  const loadOlderMessages = useCallback(async () => {
+    if (!conversationId || loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    const oldest = messages[0];
+    if (!oldest) { setLoadingMore(false); return; }
+
+    const { data } = await supabase
+      .from("direct_messages")
+      .select("*")
+      .eq("conversation_id", conversationId)
+      .lt("created_at", oldest.created_at)
+      .order("created_at", { ascending: false })
+      .limit(PAGE_SIZE);
+
+    if (data) {
+      const mapped = data.reverse().map((m) => ({
+        ...m,
+        reactions: (m.reactions ?? {}) as Record<string, string[]>,
+        isSelf: m.sender_id === currentUserId,
+      }));
+      setMessages((prev) => [...mapped, ...prev]);
+      setHasMore(data.length === PAGE_SIZE);
+    } else {
+      setHasMore(false);
+    }
+    setLoadingMore(false);
+  }, [conversationId, currentUserId, messages, loadingMore, hasMore]);
 
   // B-5: Combined fetch + subscribe in a single effect to prevent double-fetch
   useEffect(() => {
