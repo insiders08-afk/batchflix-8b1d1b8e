@@ -10,6 +10,7 @@ import { useDMList } from "@/hooks/useDMList";
 import { useBatchLastMessages } from "@/hooks/useBatchLastMessages";
 import { useAuth } from "@/contexts/AuthContext";
 import type { DirectConversation } from "@/types/chat";
+import { saveHubCache, loadHubCache } from "@/lib/hubCache";
 
 type Tab = "all" | "batches" | "teachers" | "students";
 
@@ -32,10 +33,11 @@ export default function AdminChatHub() {
   const { authUser } = useAuth();
   const [activeTab, setActiveTab] = useState<Tab>("all");
   const [search, setSearch] = useState("");
-  const [batches, setBatches] = useState<Batch[]>([]);
-  const [teachers, setTeachers] = useState<UserProfile[]>([]);
-  const [students, setStudents] = useState<UserProfile[]>([]);
-  const [pageLoading, setPageLoading] = useState(true);
+  const [batches, setBatches] = useState<Batch[]>(() => loadHubCache<Batch[]>("admin_batches") || []);
+  const [teachers, setTeachers] = useState<UserProfile[]>(() => loadHubCache<UserProfile[]>("admin_teachers") || []);
+  const [students, setStudents] = useState<UserProfile[]>(() => loadHubCache<UserProfile[]>("admin_students") || []);
+  const cachedData = batches.length > 0 || teachers.length > 0 || students.length > 0;
+  const [pageLoading, setPageLoading] = useState(!cachedData);
 
   const currentUserId = authUser?.userId ?? "";
   const instituteCode = authUser?.instituteCode ?? "";
@@ -54,6 +56,9 @@ export default function AdminChatHub() {
       setBatches(batchRes.data || []);
       setTeachers(teacherRes.data || []);
       setStudents(studentRes.data || []);
+      saveHubCache("admin_batches", batchRes.data || []);
+      saveHubCache("admin_teachers", teacherRes.data || []);
+      saveHubCache("admin_students", studentRes.data || []);
       setPageLoading(false);
     };
     init();
