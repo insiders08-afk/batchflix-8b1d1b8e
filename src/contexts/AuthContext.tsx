@@ -19,6 +19,7 @@ interface AuthContextType {
 }
 
 const CACHE_KEY = "bh_auth_user";
+const INST_NAME_CACHE_PREFIX = "bh_inst_name_";
 
 const AuthContext = createContext<AuthContextType>({
   authUser: null,
@@ -65,13 +66,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     let instituteName = profile?.institute_code ?? "";
     if (profile?.institute_code) {
-      const { data: inst } = await supabase
-        .from("institutes")
-        .select("institute_name, city")
-        .eq("institute_code", profile.institute_code)
-        .single();
-      if (inst) {
-        instituteName = `${inst.institute_name}${inst.city ? ", " + inst.city : ""}`;
+      // MED-03: Cache institute name to avoid repeat network round-trips
+      const cachedName = sessionStorage.getItem(`${INST_NAME_CACHE_PREFIX}${profile.institute_code}`);
+      if (cachedName) {
+        instituteName = cachedName;
+      } else {
+        const { data: inst } = await supabase
+          .from("institutes")
+          .select("institute_name, city")
+          .eq("institute_code", profile.institute_code)
+          .single();
+        if (inst) {
+          instituteName = `${inst.institute_name}${inst.city ? ", " + inst.city : ""}`;
+          sessionStorage.setItem(`${INST_NAME_CACHE_PREFIX}${profile.institute_code}`, instituteName);
+        }
       }
     }
 
@@ -87,7 +95,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       userInitials: initials,
       instituteCode: profile?.institute_code ?? "",
       instituteName,
-      status: profile?.status ?? "active",
+      // LOW-04: Default to "pending" instead of "active" for missing profiles
+      status: profile?.status ?? "pending",
     };
 
     setAuthUser(newUser);

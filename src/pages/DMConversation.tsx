@@ -22,6 +22,8 @@ import type { DirectMessage } from "@/types/chat";
 import { useToast } from "@/hooks/use-toast";
 import { formatChatDate, getMessagePreview, roleLabel } from "@/lib/chatUtils";
 import { useAuth } from "@/contexts/AuthContext";
+import { getOtherRoleFromDmType } from "@/types/chat";
+import type { DmType } from "@/types/chat";
 
 const MAX_FILE_SIZE_MB = 10;
 
@@ -79,14 +81,7 @@ export default function DMConversation() {
       if (conv) {
         const isAdminSide = conv.admin_id === currentUserId;
         const otherId = isAdminSide ? conv.other_user_id : conv.admin_id;
-
-        const roleMap: Record<string, [string, string]> = {
-          admin_teacher: ["admin", "teacher"],
-          admin_student: ["admin", "student"],
-          teacher_student: ["teacher", "student"],
-        };
-        const roles = roleMap[conv.dm_type] || ["admin", "student"];
-        const expectedOtherRole = isAdminSide ? roles[1] : roles[0];
+        const expectedOtherRole = getOtherRoleFromDmType(conv.dm_type as DmType, isAdminSide);
 
         const { data: otherProfile } = await supabase
           .from("profiles")
