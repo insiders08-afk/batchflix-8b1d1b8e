@@ -514,13 +514,35 @@ export default function BatchWorkspace() {
       }
     }
 
+    // HIGH-03: Optimistic send — show message immediately
+    const optimisticId = `optimistic-${Date.now()}`;
+    const optimisticMsg: ChatMessage = {
+      id: optimisticId,
+      sender_id: currentUserId,
+      sender_name: currentUserName,
+      sender_role: currentUserRole,
+      // LOW-03: Use consistent 📎 prefix for file-only messages
+      message: chatInput.trim() || (fileData ? `📎 ${fileData.name}` : ""),
+      created_at: new Date().toISOString(),
+      file_url: fileData?.url ?? null,
+      file_name: fileData?.name ?? null,
+      file_type: fileData?.type ?? null,
+      reply_to_id: replyingTo?.id ?? null,
+      reactions: {},
+      is_deleted: false,
+      is_edited: false,
+      isSelf: true,
+    };
+    setMessages((prev) => [...prev, optimisticMsg]);
+    scrollToBottom("smooth");
+
     const { error } = await supabase.from("batch_messages").insert({
       batch_id: batchId!,
       institute_code: batch.institute_code,
       sender_id: currentUserId,
       sender_name: currentUserName,
       sender_role: currentUserRole,
-      message: chatInput.trim() || (fileData ? fileData.name : ""),
+      message: chatInput.trim() || (fileData ? `📎 ${fileData.name}` : ""),
       file_url: fileData?.url ?? null,
       file_name: fileData?.name ?? null,
       file_type: fileData?.type ?? null,
