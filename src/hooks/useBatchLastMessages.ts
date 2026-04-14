@@ -4,7 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import type { BatchLastMessage } from "@/types/chat";
 import { saveHubCache, loadHubCache } from "@/lib/hubCache";
 
-const STALE_TIME = 5 * 60 * 1000;
+const STALE_TIME = 30 * 1000; // 30 seconds for fresher batch chat data
 
 async function fetchBatchLastMsgs(instituteCode: string): Promise<Record<string, BatchLastMessage>> {
   if (!instituteCode) return {};
