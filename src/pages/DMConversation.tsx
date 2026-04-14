@@ -125,20 +125,31 @@ export default function DMConversation() {
     instituteCode,
   });
 
-  // B-7: Call markAsRead when messages load
+  // CRIT-01 fix: Only markAsRead when visible + initial scroll done
   useEffect(() => {
-    if (!msgsLoading && messages.length > 0) {
+    if (!msgsLoading && messages.length > 0 && initialScrollDone.current && document.visibilityState === "visible") {
       markAsRead();
     }
   }, [msgsLoading, messages.length, markAsRead]);
 
+  // CRIT-01: Also mark as read when user returns to tab
+  useEffect(() => {
+    const handler = () => {
+      if (document.visibilityState === "visible" && messages.length > 0 && initialScrollDone.current) {
+        markAsRead();
+      }
+    };
+    document.addEventListener("visibilitychange", handler);
+    return () => document.removeEventListener("visibilitychange", handler);
+  }, [messages.length, markAsRead]);
+
   // ── Scroll management (aligned with BatchWorkspace) ──────────────────
+  // MED-01 fix: simplified scrollToBottom
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
     const container = chatContainerRef.current;
     if (!container) return;
     container.scrollTop = container.scrollHeight;
-    const distFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
-    setShowScrollDown(distFromBottom > 100);
+    setShowScrollDown(false);
   }, []);
 
   // After messages load for the first time, do a hard instant scroll to bottom.
@@ -438,12 +449,7 @@ export default function DMConversation() {
                                loading="lazy"
                                width={200}
                                height={160}
-                              onLoad={() => {
-                                const c = chatContainerRef.current;
-                                if (!c) return;
-                                const dist = c.scrollHeight - c.scrollTop - c.clientHeight;
-                                if (dist < 300) chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-                              }}
+                              // MED-10: Removed onLoad scroll — ResizeObserver handles this
                             />
                           </a>
                         ) : (
