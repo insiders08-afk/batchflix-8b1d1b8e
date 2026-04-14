@@ -109,6 +109,40 @@ interface TestScore {
 
 const MAX_FILE_SIZE_MB = 10;
 
+function sortBatchMessages(messages: ChatMessage[]) {
+  return [...messages].sort(
+    (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+  );
+}
+
+function normalizeBatchMessage(message: ChatMessage, currentUserId: string): ChatMessage {
+  return {
+    ...message,
+    reactions: (message.reactions ?? {}) as Record<string, string[]>,
+    isSelf: message.sender_id === currentUserId,
+  };
+}
+
+function matchesOptimisticBatchMessage(local: ChatMessage, incoming: ChatMessage) {
+  return (
+    local.id.startsWith("optimistic-") &&
+    local.sender_id === incoming.sender_id &&
+    local.message === incoming.message &&
+    (local.file_url ?? null) === (incoming.file_url ?? null) &&
+    (local.reply_to_id ?? null) === (incoming.reply_to_id ?? null)
+  );
+}
+
+function mergeFetchedBatchMessages(fetched: ChatMessage[], existing: ChatMessage[]) {
+  const pendingOptimistic = existing.filter(
+    (local) =>
+      local.id.startsWith("optimistic-") &&
+      !fetched.some((incoming) => matchesOptimisticBatchMessage(local, incoming)),
+  );
+
+  return sortBatchMessages([...fetched, ...pendingOptimistic]);
+}
+
 export default function BatchWorkspace() {
   const { id: batchId } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -202,13 +236,14 @@ export default function BatchWorkspace() {
         if (batchRes.data) setBatch(batchRes.data);
         setStudentCount(countRes.count || 0);
         if (msgsRes.data) {
-          const mapped = msgsRes.data.reverse().map((m) => ({
-            ...m,
-            reactions: (m.reactions ?? {}) as Record<string, string[]>,
-            isSelf: m.sender_id === currentUserId,
-          }));
-          setMessages(mapped);
-          saveCachedMessages(batchCacheKey, mapped);
+          const mapped = msgsRes.data
+            .reverse()
+            .map((m) => normalizeBatchMessage(m as ChatMessage, currentUserId));
+          setMessages((prev) => {
+            const next = mergeFetchedBatchMessages(mapped, prev);
+            saveCachedMessages(batchCacheKey, next);
+            return next;
+          });
           setHasMoreMsgs(msgsRes.data.length === BATCH_MSG_PAGE_SIZE);
         }
         setCriticalLoading(false); // ← UI renders HERE — user sees chat
@@ -296,24 +331,11 @@ export default function BatchWorkspace() {
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "batch_messages", filter: `batch_id=eq.${batchId}` },
         (payload) => {
-          const msg = payload.new as ChatMessage;
+          const msg = normalizeBatchMessage(payload.new as ChatMessage, currentUserId);
           setMessages((prev) => {
-            // HIGH-03: Reconcile optimistic messages
-            const isOptimisticMatch = prev.some(
-              (m) => m.id.startsWith("optimistic-") && m.sender_id === msg.sender_id && m.message === msg.message
-            );
-            const filtered = isOptimisticMatch
-              ? prev.filter((m) => !(m.id.startsWith("optimistic-") && m.sender_id === msg.sender_id && m.message === msg.message))
-              : prev;
+            const filtered = prev.filter((m) => !matchesOptimisticBatchMessage(m, msg));
             if (filtered.some((m) => m.id === msg.id)) return filtered;
-            const next = [
-              ...filtered,
-              {
-                ...msg,
-                reactions: (msg.reactions ?? {}) as Record<string, string[]>,
-                isSelf: msg.sender_id === currentUserId,
-              },
-            ];
+            const next = sortBatchMessages([...filtered, msg]);
             saveCachedMessages(batchCacheKey, next);
             return next;
           });
@@ -486,7 +508,7 @@ export default function BatchWorkspace() {
   };
 
   const sendMessage = async () => {
-    if ((!chatInput.trim() && !attachedFile) || !batch) return;
+    if ((!chatInput.trim() && !attachedFile) || !batch || !currentUserId) return;
     setSendingMsg(true);
 
     if (editingMessage) {
@@ -540,23 +562,45 @@ export default function BatchWorkspace() {
       is_edited: false,
       isSelf: true,
     };
-    setMessages((prev) => [...prev, optimisticMsg]);
+    setMessages((prev) => {
+      const next = sortBatchMessages([...prev, optimisticMsg]);
+      saveCachedMessages(batchCacheKey, next);
+      return next;
+    });
     scrollToBottom("smooth");
 
-    const { error } = await supabase.from("batch_messages").insert({
-      batch_id: batchId!,
-      institute_code: batch.institute_code,
-      sender_id: currentUserId,
-      sender_name: currentUserName,
-      sender_role: currentUserRole,
-      message: chatInput.trim() || (fileData ? `📎 ${fileData.name}` : ""),
-      file_url: fileData?.url ?? null,
-      file_name: fileData?.name ?? null,
-      file_type: fileData?.type ?? null,
-      reply_to_id: replyingTo?.id ?? null,
-    } as any);
+    const { data: insertedMessage, error } = await supabase
+      .from("batch_messages")
+      .insert({
+        batch_id: batchId!,
+        institute_code: batch.institute_code,
+        sender_id: currentUserId,
+        sender_name: currentUserName,
+        sender_role: currentUserRole,
+        message: chatInput.trim() || (fileData ? `📎 ${fileData.name}` : ""),
+        file_url: fileData?.url ?? null,
+        file_name: fileData?.name ?? null,
+        file_type: fileData?.type ?? null,
+        reply_to_id: replyingTo?.id ?? null,
+      } as any)
+      .select()
+      .single();
 
-    if (!error) {
+    if (!error && insertedMessage) {
+      const normalizedInserted = normalizeBatchMessage(insertedMessage as ChatMessage, currentUserId);
+      setMessages((prev) => {
+        const withoutOptimistic = prev.filter(
+          (m) => m.id !== optimisticId && !matchesOptimisticBatchMessage(m, normalizedInserted),
+        );
+        if (withoutOptimistic.some((m) => m.id === normalizedInserted.id)) {
+          saveCachedMessages(batchCacheKey, withoutOptimistic);
+          return withoutOptimistic;
+        }
+        const next = sortBatchMessages([...withoutOptimistic, normalizedInserted]);
+        saveCachedMessages(batchCacheKey, next);
+        return next;
+      });
+
       setChatInput("");
       setAttachedFile(null);
       setReplyingTo(null);
@@ -589,6 +633,13 @@ export default function BatchWorkspace() {
           target_user_ids: [batch.teacher_id],
         });
       }
+    } else {
+      setMessages((prev) => {
+        const next = prev.filter((m) => m.id !== optimisticId);
+        saveCachedMessages(batchCacheKey, next);
+        return next;
+      });
+      toast({ title: "Failed to send message", description: error?.message, variant: "destructive" });
     }
     setSendingMsg(false);
   };
