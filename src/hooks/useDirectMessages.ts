@@ -15,6 +15,42 @@ interface UseDirectMessagesOptions {
   instituteCode: string;
 }
 
+function mapDirectMessage(message: DirectMessage, currentUserId: string): DirectMessage {
+  return {
+    ...message,
+    reactions: (message.reactions ?? {}) as Record<string, string[]>,
+    isSelf: message.sender_id === currentUserId,
+  };
+}
+
+function matchesOptimisticMessage(local: DirectMessage, incoming: DirectMessage) {
+  return (
+    local.id.startsWith("optimistic-") &&
+    local.sender_id === incoming.sender_id &&
+    local.message === incoming.message &&
+    local.reply_to_id === incoming.reply_to_id &&
+    local.file_name === incoming.file_name &&
+    local.file_url === incoming.file_url
+  );
+}
+
+function reconcileIncomingMessage(
+  prev: DirectMessage[],
+  incoming: DirectMessage,
+  currentUserId: string
+) {
+  const next = prev.filter(
+    (message) => message.id !== incoming.id && !matchesOptimisticMessage(message, incoming)
+  );
+
+  next.push(mapDirectMessage(incoming, currentUserId));
+  next.sort(
+    (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+  );
+
+  return next;
+}
+
 export function useDirectMessages({
   conversationId,
   currentUserId,
@@ -33,6 +69,7 @@ export function useDirectMessages({
   const [hasMore, setHasMore] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const sendInFlightRef = useRef(false);
   const [channelStatus, setChannelStatus] = useState<string>("CLOSED");
 
   // ── Fetch latest messages ─────────────────────────────────
@@ -45,11 +82,7 @@ export function useDirectMessages({
       .order("created_at", { ascending: false })
       .limit(PAGE_SIZE);
     if (data) {
-      const mapped = data.reverse().map((m) => ({
-        ...m,
-        reactions: (m.reactions ?? {}) as Record<string, string[]>,
-        isSelf: m.sender_id === currentUserId,
-      }));
+      const mapped = data.reverse().map((m) => mapDirectMessage(m as DirectMessage, currentUserId));
       setMessages(mapped);
       saveCachedMessages(cacheKey, mapped);
       setHasMore(data.length === PAGE_SIZE);
@@ -73,11 +106,7 @@ export function useDirectMessages({
       .limit(PAGE_SIZE);
 
     if (data) {
-      const mapped = data.reverse().map((m) => ({
-        ...m,
-        reactions: (m.reactions ?? {}) as Record<string, string[]>,
-        isSelf: m.sender_id === currentUserId,
-      }));
+      const mapped = data.reverse().map((m) => mapDirectMessage(m as DirectMessage, currentUserId));
       setMessages((prev) => [...mapped, ...prev]);
       setHasMore(data.length === PAGE_SIZE);
     } else {
@@ -112,24 +141,7 @@ export function useDirectMessages({
         (payload) => {
           const msg = payload.new as DirectMessage;
           setMessages((prev) => {
-            if (prev.some((m) => m.id === msg.id)) return prev;
-            // Remove optimistic placeholder (same sender + same message text)
-            const withoutOptimistic = prev.filter(
-              (m) =>
-                !(
-                  m.id.startsWith("optimistic-") &&
-                  m.sender_id === msg.sender_id &&
-                  m.message === msg.message
-                )
-            );
-            const next = [
-              ...withoutOptimistic,
-              {
-                ...msg,
-                reactions: (msg.reactions ?? {}) as Record<string, string[]>,
-                isSelf: msg.sender_id === currentUserId,
-              },
-            ];
+            const next = reconcileIncomingMessage(prev, msg, currentUserId);
             saveCachedMessages(cacheKey, next);
             return next;
           });
@@ -226,59 +238,77 @@ export function useDirectMessages({
       replyToId?: string | null;
     }) => {
       if (!text.trim() && !file) return;
+      if (sendInFlightRef.current) return;
 
-      let fileData: { url: string; name: string; type: string } | null = null;
-      if (file) {
-        fileData = await uploadFile(file);
-        if (!fileData) return;
+      sendInFlightRef.current = true;
+
+      try {
+        let fileData: { url: string; name: string; type: string } | null = null;
+        if (file) {
+          fileData = await uploadFile(file);
+          if (!fileData) return;
+        }
+
+        // B-6: Use descriptive message for file-only messages instead of empty string
+        const messageText = text.trim() || (fileData ? `📎 ${fileData.name}` : "");
+
+        // Optimistic send: add message locally before DB insert
+        const optimisticId = `optimistic-${Date.now()}`;
+        const optimisticMsg: DirectMessage = {
+          id: optimisticId,
+          conversation_id: conversationId,
+          institute_code: instituteCode,
+          sender_id: currentUserId,
+          sender_name: currentUserName,
+          sender_role: currentUserRole,
+          message: messageText,
+          file_url: fileData?.url ?? null,
+          file_name: fileData?.name ?? null,
+          file_type: fileData?.type ?? null,
+          reply_to_id: replyToId ?? null,
+          reactions: {},
+          is_deleted: false,
+          is_edited: false,
+          created_at: new Date().toISOString(),
+          isSelf: true,
+        };
+        setMessages((prev) => [...prev, optimisticMsg]);
+
+        const { data, error } = await supabase
+          .from("direct_messages")
+          .insert({
+            conversation_id: conversationId,
+            institute_code: instituteCode,
+            sender_id: currentUserId,
+            sender_name: currentUserName,
+            sender_role: currentUserRole,
+            message: messageText,
+            file_url: fileData?.url ?? null,
+            file_name: fileData?.name ?? null,
+            file_type: fileData?.type ?? null,
+            reply_to_id: replyToId ?? null,
+          })
+          .select("*")
+          .single();
+
+        if (error) {
+          setMessages((prev) => prev.filter((m) => m.id !== optimisticId));
+          toast({ title: "Failed to send message", description: error.message, variant: "destructive" });
+          return;
+        }
+
+        if (data) {
+          setMessages((prev) => {
+            const next = reconcileIncomingMessage(prev, data as DirectMessage, currentUserId);
+            saveCachedMessages(cacheKey, next);
+            return next;
+          });
+        }
+      } finally {
+        sendInFlightRef.current = false;
       }
-
-      // B-6: Use descriptive message for file-only messages instead of empty string
-      const messageText = text.trim() || (fileData ? `📎 ${fileData.name}` : "");
-
-      // Optimistic send: add message locally before DB insert
-      const optimisticId = `optimistic-${Date.now()}`;
-      const optimisticMsg: DirectMessage = {
-        id: optimisticId,
-        conversation_id: conversationId,
-        institute_code: instituteCode,
-        sender_id: currentUserId,
-        sender_name: currentUserName,
-        sender_role: currentUserRole,
-        message: messageText,
-        file_url: fileData?.url ?? null,
-        file_name: fileData?.name ?? null,
-        file_type: fileData?.type ?? null,
-        reply_to_id: replyToId ?? null,
-        reactions: {},
-        is_deleted: false,
-        is_edited: false,
-        created_at: new Date().toISOString(),
-        isSelf: true,
-      };
-      setMessages((prev) => [...prev, optimisticMsg]);
-
-      const { error } = await supabase.from("direct_messages").insert({
-        conversation_id: conversationId,
-        institute_code: instituteCode,
-        sender_id: currentUserId,
-        sender_name: currentUserName,
-        sender_role: currentUserRole,
-        message: messageText,
-        file_url: fileData?.url ?? null,
-        file_name: fileData?.name ?? null,
-        file_type: fileData?.type ?? null,
-        reply_to_id: replyToId ?? null,
-      });
-
-      if (error) {
-        // Remove optimistic message on failure
-        setMessages((prev) => prev.filter((m) => m.id !== optimisticId));
-        toast({ title: "Failed to send message", description: error.message, variant: "destructive" });
-      }
-      // Real message will arrive via realtime INSERT and dedup will handle it
     },
-    [conversationId, currentUserId, currentUserName, currentUserRole, instituteCode, toast]
+    [conversationId, currentUserId, currentUserName, currentUserRole, instituteCode, toast, cacheKey]
   );
 
   // ── Edit message ───────────────────────────────────────────

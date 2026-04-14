@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useRef } from "react";
+import { useEffect, useCallback, useRef, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import type { BatchLastMessage } from "@/types/chat";
@@ -23,7 +23,7 @@ export function useBatchLastMessages(instituteCode: string) {
   const queryClient = useQueryClient();
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 
-  const queryKey = ["batch-last-msgs", instituteCode];
+  const queryKey = useMemo(() => ["batch-last-msgs", instituteCode], [instituteCode]);
   const cacheKey = `batch_last_msgs_${instituteCode}`;
 
   const { data: batchLastMsgs = {} } = useQuery<Record<string, BatchLastMessage>>({
