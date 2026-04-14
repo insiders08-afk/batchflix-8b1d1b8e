@@ -1,6 +1,5 @@
 /**
  * Shared chat utilities used by BatchWorkspace and DMConversation.
- * B-29: Extracted from duplicated code in both files.
  */
 
 /** Format a message timestamp for display in chat bubbles */
@@ -13,13 +12,14 @@ export function formatChatDate(dateStr: string): string {
   const isYesterday = date.toDateString() === yesterday.toDateString();
   const timeStr = date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   if (isToday) return timeStr;
-  if (isYesterday) return `${timeStr} Yesterday`;
+  // MED-06: WhatsApp convention — "Yesterday, 3:45 PM"
+  if (isYesterday) return `Yesterday, ${timeStr}`;
   const day = date.getDate();
   const month = date.toLocaleString("en-IN", { month: "short" }).toUpperCase();
-  return `${timeStr} ${day} ${month}`;
+  return `${day} ${month}, ${timeStr}`;
 }
 
-/** B-13: Smart reply preview helper for file-only and text messages */
+/** Smart reply preview helper for file-only and text messages */
 export function getMessagePreview(msg: {
   message?: string;
   file_url?: string | null;

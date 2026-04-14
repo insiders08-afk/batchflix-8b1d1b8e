@@ -10,7 +10,7 @@ interface UseDMListOptions {
   instituteCode: string;
 }
 
-const DM_STALE_TIME = 30 * 1000; // 30 seconds (was 5 min — too stale for chat)
+const DM_STALE_TIME = 30 * 1000;
 
 async function fetchDMConversations(
   currentUserId: string,
@@ -44,6 +44,8 @@ async function fetchDMConversations(
 export function useDMList({ currentUserId, currentUserRole, instituteCode }: UseDMListOptions) {
   const queryClient = useQueryClient();
   const channelRef = useRef<ReturnType<typeof supabase.channel>[]>([]);
+  // CRIT-03 fix: debounce refetches to prevent double unread count
+  const lastRefetchRef = useRef(0);
 
   const queryKey = useMemo(
     () => ["dm-list", currentUserId, currentUserRole, instituteCode],
@@ -73,7 +75,40 @@ export function useDMList({ currentUserId, currentUserRole, instituteCode }: Use
     queryClient.invalidateQueries({ queryKey });
   }, [queryClient, queryKey]);
 
-  // Real-time subscriptions — listen to BOTH direct_conversations AND direct_messages
+  // CRIT-03: Debounced refetch to prevent double unread count from racing listeners
+  const debouncedRefetch = useCallback(() => {
+    const now = Date.now();
+    if (now - lastRefetchRef.current < 500) return;
+    lastRefetchRef.current = now;
+    refetch();
+  }, [refetch]);
+
+  // HIGH-02: Use optimistic updates from realtime payload instead of full refetch
+  const handleConversationUpdate = useCallback(
+    (payload: { new: Record<string, unknown> }) => {
+      const updated = payload.new as DirectConversation;
+      queryClient.setQueryData<DirectConversation[]>(queryKey, (prev) => {
+        if (!prev) return prev;
+        const exists = prev.some((c) => c.id === updated.id);
+        let next: DirectConversation[];
+        if (exists) {
+          next = prev.map((c) => (c.id === updated.id ? updated : c));
+        } else {
+          next = [...prev, updated];
+        }
+        return next.sort((a, b) => {
+          if (!a.last_message_at && !b.last_message_at) return 0;
+          if (!a.last_message_at) return 1;
+          if (!b.last_message_at) return -1;
+          return new Date(b.last_message_at).getTime() - new Date(a.last_message_at).getTime();
+        });
+      });
+    },
+    [queryClient, queryKey]
+  );
+
+  // Real-time subscriptions — listen to direct_conversations only (trigger handles updates)
+  // CRIT-03 fix: Removed redundant direct_messages INSERT listener
   useEffect(() => {
     if (!currentUserId || !instituteCode) return;
 
@@ -83,14 +118,19 @@ export function useDMList({ currentUserId, currentUserRole, instituteCode }: Use
     const ts = Date.now();
     const channels: ReturnType<typeof supabase.channel>[] = [];
 
-    // Subscribe to direct_conversations changes (triggered by after_direct_message_insert)
     if (currentUserRole === "teacher") {
       const ch1 = supabase
         .channel(`dm-list-other-${currentUserId}-${ts}`)
         .on("postgres_changes", {
           event: "*", schema: "public", table: "direct_conversations",
           filter: `other_user_id=eq.${currentUserId}`,
-        }, () => refetch())
+        }, (payload) => {
+          if (payload.eventType === "UPDATE") {
+            handleConversationUpdate(payload as { new: Record<string, unknown> });
+          } else {
+            debouncedRefetch();
+          }
+        })
         .subscribe();
 
       const ch2 = supabase
@@ -98,7 +138,13 @@ export function useDMList({ currentUserId, currentUserRole, instituteCode }: Use
         .on("postgres_changes", {
           event: "*", schema: "public", table: "direct_conversations",
           filter: `admin_id=eq.${currentUserId}`,
-        }, () => refetch())
+        }, (payload) => {
+          if (payload.eventType === "UPDATE") {
+            handleConversationUpdate(payload as { new: Record<string, unknown> });
+          } else {
+            debouncedRefetch();
+          }
+        })
         .subscribe();
 
       channels.push(ch1, ch2);
@@ -109,24 +155,16 @@ export function useDMList({ currentUserId, currentUserRole, instituteCode }: Use
         .on("postgres_changes", {
           event: "*", schema: "public", table: "direct_conversations",
           filter: `${filterCol}=eq.${currentUserId}`,
-        }, () => refetch())
+        }, (payload) => {
+          if (payload.eventType === "UPDATE") {
+            handleConversationUpdate(payload as { new: Record<string, unknown> });
+          } else {
+            debouncedRefetch();
+          }
+        })
         .subscribe();
       channels.push(ch);
     }
-
-    // Also subscribe to direct_messages INSERT for faster reaction
-    // (the trigger updates direct_conversations, but this catches edge cases)
-    const msgCh = supabase
-      .channel(`dm-msgs-hub-${currentUserId}-${ts}`)
-      .on("postgres_changes", {
-        event: "INSERT", schema: "public", table: "direct_messages",
-        filter: `institute_code=eq.${instituteCode}`,
-      }, () => {
-        // Small delay to let the trigger update direct_conversations first
-        setTimeout(() => refetch(), 300);
-      })
-      .subscribe();
-    channels.push(msgCh);
 
     channelRef.current = channels;
 
@@ -134,7 +172,7 @@ export function useDMList({ currentUserId, currentUserRole, instituteCode }: Use
       channels.forEach((ch) => supabase.removeChannel(ch));
       channelRef.current = [];
     };
-  }, [currentUserId, currentUserRole, instituteCode, refetch]);
+  }, [currentUserId, currentUserRole, instituteCode, debouncedRefetch, handleConversationUpdate]);
 
   // Refetch on tab visibility
   useEffect(() => {
@@ -144,6 +182,16 @@ export function useDMList({ currentUserId, currentUserRole, instituteCode }: Use
     };
     document.addEventListener("visibilitychange", handleVis);
     return () => document.removeEventListener("visibilitychange", handleVis);
+  }, [currentUserId, instituteCode, refetch]);
+
+  // HIGH-06: Reconnection handler for offline/online transitions
+  useEffect(() => {
+    if (!currentUserId || !instituteCode) return;
+    const handler = () => {
+      if (navigator.onLine) refetch();
+    };
+    window.addEventListener("online", handler);
+    return () => window.removeEventListener("online", handler);
   }, [currentUserId, instituteCode, refetch]);
 
   return { conversations, totalUnread, loading, refetch };
