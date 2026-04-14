@@ -525,21 +525,32 @@ export default function DMConversation() {
 
                 {/* B-5 (DM): Simplified reaction UI — no "See" button, no count badge in 1-on-1 */}
                 <div className="flex items-center gap-2">
-                  {(["👍", "👎"] as const).map((emoji) => (
-                    <button
-                      key={emoji}
-                      onClick={() => reactToMessage(msg.id, emoji)}
-                      className={cn(
-                        "flex items-center gap-1 p-1 rounded-md transition-colors hover:bg-muted",
-                        msg.reactions?.[emoji]?.includes(currentUserId) && emoji === "👍" && "text-primary bg-primary/10",
-                        msg.reactions?.[emoji]?.includes(currentUserId) && emoji === "👎" && "text-destructive bg-destructive/10",
-                        // Show filled state if other user reacted too
-                        msg.reactions?.[emoji]?.length > 0 && !msg.reactions?.[emoji]?.includes(currentUserId) && "opacity-60"
-                      )}
-                    >
-                      {emoji === "👍" ? <ThumbsUp className="w-3 h-3" /> : <ThumbsDown className="w-3 h-3" />}
-                    </button>
-                  ))}
+                  {(["👍", "👎"] as const).map((emoji) => {
+                    const reactors = msg.reactions?.[emoji] || [];
+                    const iReacted = reactors.includes(currentUserId);
+                    const othersReacted = reactors.length > 0 && !iReacted;
+                    const anyReaction = reactors.length > 0;
+                    return (
+                      <button
+                        key={emoji}
+                        onClick={() => reactToMessage(msg.id, emoji)}
+                        className={cn(
+                          "flex items-center gap-1 p-1 rounded-md transition-colors hover:bg-muted",
+                          // I reacted — strong highlight
+                          iReacted && emoji === "👍" && "text-primary bg-primary/10",
+                          iReacted && emoji === "👎" && "text-destructive bg-destructive/10",
+                          // Other person reacted — still show colored, slightly lighter
+                          othersReacted && emoji === "👍" && "text-primary/80 bg-primary/5",
+                          othersReacted && emoji === "👎" && "text-destructive/80 bg-destructive/5",
+                          // No reactions at all — dim
+                          !anyReaction && "opacity-40"
+                        )}
+                      >
+                        {emoji === "👍" ? <ThumbsUp className={cn("w-3 h-3", anyReaction && "fill-current")} /> : <ThumbsDown className={cn("w-3 h-3", anyReaction && "fill-current")} />}
+                        {anyReaction && <span className="text-[10px] font-medium">{reactors.length}</span>}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             </div>
