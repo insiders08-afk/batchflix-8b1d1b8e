@@ -6,14 +6,18 @@ import { supabase } from "@/integrations/supabase/client";
 import DashboardLayout from "@/components/DashboardLayout";
 import { ChatListItem } from "@/components/chat/ChatListItem";
 import { ChatSearchBar } from "@/components/chat/ChatSearchBar";
+import { ChatEmptyState } from "@/components/chat/ChatEmptyState";
 import { useDMList } from "@/hooks/useDMList";
 import { useBatchLastMessages } from "@/hooks/useBatchLastMessages";
+import { useBatchUnreadCounts } from "@/hooks/useBatchUnreadCounts";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { saveHubCache, loadHubCache } from "@/lib/hubCache";
 import { useQuery } from "@tanstack/react-query";
 import { fetchTeacherHubData, HUB_STALE_TIME, HUB_GC_TIME } from "@/lib/hubQueries";
 import type { TeacherHubData, HubBatch, HubUserProfile } from "@/lib/hubQueries";
+import { useDebounce } from "@/hooks/useDebounce";
+import type { DmType } from "@/types/chat";
 
 type Tab = "all" | "admin_dm" | "students";
 
@@ -21,15 +25,6 @@ interface StudentSearchResult {
   user_id: string;
   full_name: string;
   role_based_code: string | null;
-}
-
-function useDebounce<T>(value: T, delay = 300): T {
-  const [debounced, setDebounced] = useState(value);
-  useEffect(() => {
-    const t = setTimeout(() => setDebounced(value), delay);
-    return () => clearTimeout(t);
-  }, [value, delay]);
-  return debounced;
 }
 
 export default function TeacherChatHub() {
@@ -43,7 +38,6 @@ export default function TeacherChatHub() {
   const instituteCode = authUser?.instituteCode ?? "";
   const instituteName = authUser?.instituteName ?? "";
 
-  // ── React Query for hub data ──────────────────────────────
   const { data, isLoading } = useQuery<TeacherHubData>({
     queryKey: ["teacher-hub", instituteCode, currentUserId],
     queryFn: fetchTeacherHubData(instituteCode, currentUserId),
@@ -59,23 +53,20 @@ export default function TeacherChatHub() {
   const batches = data?.batches || [];
   const adminProfile = data?.adminProfile || null;
 
-  // Sync to hubCache
   useEffect(() => {
     if (!data) return;
     saveHubCache("teacher_batches", data.batches);
     if (data.adminProfile) saveHubCache("teacher_admin", data.adminProfile);
   }, [data]);
 
-  // Profile map: userId → full_name (for DM other users)
   const [profileMap, setProfileMap] = useState<Record<string, string>>({});
-
-  // Student search
   const [searchResults, setSearchResults] = useState<StudentSearchResult[]>([]);
   const [searchingStudents, setSearchingStudents] = useState(false);
 
   const debouncedSearch = useDebounce(search, 250);
 
   const { batchLastMsgs } = useBatchLastMessages(instituteCode);
+  const { batchUnreadCounts } = useBatchUnreadCounts(currentUserId, instituteCode);
 
   const { conversations } = useDMList({
     currentUserId,
@@ -83,7 +74,6 @@ export default function TeacherChatHub() {
     instituteCode,
   });
 
-  // Fetch profiles for all "other" users in conversations
   useEffect(() => {
     if (!currentUserId || conversations.length === 0) return;
     const otherIds = [...new Set(conversations.map((c) =>
@@ -105,7 +95,6 @@ export default function TeacherChatHub() {
       });
   }, [currentUserId, conversations]);
 
-  // Student search (active only on students tab)
   useEffect(() => {
     if (activeTab !== "students" || !debouncedSearch || debouncedSearch.length < 2 || !instituteCode) {
       setSearchResults([]);
@@ -128,14 +117,13 @@ export default function TeacherChatHub() {
     doSearch();
   }, [activeTab, debouncedSearch, instituteCode]);
 
-  // Start admin DM
   const startAdminDM = async () => {
     if (!adminProfile || !currentUserId || !instituteCode) return;
     setStartingDM(true);
     const { data, error } = await supabase.rpc("get_or_create_dm_conversation", {
       p_admin_id: adminProfile.user_id,
       p_other_user_id: currentUserId,
-      p_dm_type: "admin_teacher",
+      p_dm_type: "admin_teacher" as DmType,
       p_institute_code: instituteCode,
     });
     setStartingDM(false);
@@ -143,14 +131,14 @@ export default function TeacherChatHub() {
     navigate(`/dm/${data}`);
   };
 
-  // Start student DM (teacher is "admin_id" side)
+  // CRIT-02 fix: Remove "as any" cast
   const startStudentDM = useCallback(async (studentId: string) => {
     if (!currentUserId || !instituteCode) return;
     setStartingDM(true);
     const { data, error } = await supabase.rpc("get_or_create_dm_conversation", {
       p_admin_id: currentUserId,
       p_other_user_id: studentId,
-      p_dm_type: "teacher_student" as any,
+      p_dm_type: "teacher_student" as DmType,
       p_institute_code: instituteCode,
     });
     setStartingDM(false);
@@ -173,11 +161,9 @@ export default function TeacherChatHub() {
 
   const q = debouncedSearch.toLowerCase();
 
-  // Split conversations by type
   const adminDMs = useMemo(() => conversations.filter((c) => c.dm_type === "admin_teacher"), [conversations]);
   const studentDMs = useMemo(() => conversations.filter((c) => c.dm_type === "teacher_student"), [conversations]);
 
-  // All threads (batches + all DMs)
   const allThreads = useMemo(() => {
     type Thread = {
       key: string; name: string; subtitle: string;
@@ -192,7 +178,8 @@ export default function TeacherChatHub() {
         key: `batch-${b.id}`, name: b.name, subtitle: b.course,
         lastMessage: lm ? lm.last_message : null,
         lastMessageAt: lm ? lm.last_message_at : b.updated_at,
-        unreadCount: 0, onClick: () => navigate(`/batch/${b.id}`), isGroup: true,
+        unreadCount: batchUnreadCounts[b.id] || 0,
+        onClick: () => navigate(`/batch/${b.id}`), isGroup: true,
       });
     });
 
@@ -214,9 +201,8 @@ export default function TeacherChatHub() {
         return new Date(b.lastMessageAt).getTime() - new Date(a.lastMessageAt).getTime();
       })
       .filter((t) => t.name.toLowerCase().includes(q) || (t.lastMessage ?? "").toLowerCase().includes(q));
-  }, [batches, batchLastMsgs, conversations, getOtherName, getUnreadCount, navigate, q]);
+  }, [batches, batchLastMsgs, batchUnreadCounts, conversations, getOtherName, getUnreadCount, navigate, q]);
 
-  // ── Skeleton loading state ────────────────────────────────
   if (isLoading && !data) {
     return (
       <DashboardLayout title="Chats" role="teacher">
@@ -293,7 +279,7 @@ export default function TeacherChatHub() {
           {activeTab === "all" && (
             <>
               {allThreads.length === 0 ? (
-                <EmptyState icon={MessageSquare} message={debouncedSearch ? "No conversations match your search." : "You have no assigned batches yet."} />
+                <ChatEmptyState icon={MessageSquare} message={debouncedSearch ? "No conversations match your search." : "You have no assigned batches yet."} />
               ) : (
                 allThreads.map((t) => (
                   <ChatListItem key={t.key} name={t.name} subtitle={t.subtitle} lastMessage={t.lastMessage} lastMessageAt={t.lastMessageAt} unreadCount={t.unreadCount} onClick={t.onClick} isGroup={t.isGroup} />
@@ -380,12 +366,13 @@ function StudentsTab({
       );
     }
     if (searchResults.length === 0) {
-      return <EmptyState icon={Search} message="No students found matching your search." />;
+      return <ChatEmptyState icon={Search} message="No students found matching your search." />;
     }
 
-    const existingDMMap = new Map<string, string>();
+    // HIGH-05: Build map with full conversation data for unread counts
+    const existingDMMap = new Map<string, typeof studentDMs[0]>();
     studentDMs.forEach((c) => {
-      existingDMMap.set(c.other_user_id, c.id);
+      existingDMMap.set(c.other_user_id, c);
     });
 
     return (
@@ -394,14 +381,16 @@ function StudentsTab({
           {searchResults.length} student{searchResults.length !== 1 ? "s" : ""} found
         </div>
         {searchResults.map((s) => {
-          const existingConvoId = existingDMMap.get(s.user_id);
+          const existingConv = existingDMMap.get(s.user_id);
           return (
             <ChatListItem
               key={s.user_id}
               name={s.full_name}
               subtitle={s.role_based_code ? `ID: ${s.role_based_code}` : "Student"}
-              lastMessage={existingConvoId ? "Tap to open chat" : "Tap to start a conversation"}
-              onClick={() => existingConvoId ? onOpenDM(existingConvoId) : onStartDM(s.user_id)}
+              lastMessage={existingConv ? existingConv.last_message_preview : null}
+              lastMessageAt={existingConv ? existingConv.last_message_at : null}
+              unreadCount={existingConv ? getUnreadCount(existingConv) : 0}
+              onClick={() => existingConv ? onOpenDM(existingConv.id) : onStartDM(s.user_id)}
             />
           );
         })}
@@ -439,16 +428,5 @@ function StudentsTab({
         );
       })}
     </>
-  );
-}
-
-function EmptyState({ icon: Icon, message }: { icon: React.ElementType; message: string }) {
-  return (
-    <div className="flex flex-col items-center justify-center py-20 text-center px-6">
-      <div className="w-14 h-14 rounded-full bg-muted flex items-center justify-center mb-4">
-        <Icon className="w-6 h-6 text-muted-foreground opacity-60" />
-      </div>
-      <p className="text-sm text-muted-foreground max-w-xs">{message}</p>
-    </div>
   );
 }

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { Loader2, MessageSquare, LayoutList, ShieldCheck, BookOpen } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -6,25 +6,20 @@ import { supabase } from "@/integrations/supabase/client";
 import DashboardLayout from "@/components/DashboardLayout";
 import { ChatListItem } from "@/components/chat/ChatListItem";
 import { ChatSearchBar } from "@/components/chat/ChatSearchBar";
+import { ChatEmptyState } from "@/components/chat/ChatEmptyState";
 import { useDMList } from "@/hooks/useDMList";
 import { useBatchLastMessages } from "@/hooks/useBatchLastMessages";
+import { useBatchUnreadCounts } from "@/hooks/useBatchUnreadCounts";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { saveHubCache, loadHubCache } from "@/lib/hubCache";
 import { useQuery } from "@tanstack/react-query";
 import { fetchStudentHubData, HUB_STALE_TIME, HUB_GC_TIME } from "@/lib/hubQueries";
 import type { StudentHubData, HubBatch, HubUserProfile } from "@/lib/hubQueries";
+import { useDebounce } from "@/hooks/useDebounce";
+import type { DmType } from "@/types/chat";
 
 type Tab = "all" | "admin_dm" | "teachers";
-
-function useDebounce<T>(value: T, delay = 300): T {
-  const [debounced, setDebounced] = useState(value);
-  useEffect(() => {
-    const t = setTimeout(() => setDebounced(value), delay);
-    return () => clearTimeout(t);
-  }, [value, delay]);
-  return debounced;
-}
 
 export default function StudentChatHub() {
   const navigate = useNavigate();
@@ -39,7 +34,6 @@ export default function StudentChatHub() {
 
   const debouncedSearch = useDebounce(search, 250);
 
-  // ── React Query for hub data ──────────────────────────────
   const { data, isLoading } = useQuery<StudentHubData>({
     queryKey: ["student-hub", instituteCode, currentUserId],
     queryFn: fetchStudentHubData(instituteCode, currentUserId),
@@ -55,7 +49,6 @@ export default function StudentChatHub() {
   const batches = data?.batches || [];
   const adminProfile = data?.adminProfile || null;
 
-  // Sync to hubCache
   useEffect(() => {
     if (!data) return;
     saveHubCache("student_batches", data.batches);
@@ -63,6 +56,7 @@ export default function StudentChatHub() {
   }, [data]);
 
   const { batchLastMsgs } = useBatchLastMessages(instituteCode);
+  const { batchUnreadCounts } = useBatchUnreadCounts(currentUserId, instituteCode);
 
   const { conversations } = useDMList({
     currentUserId,
@@ -70,18 +64,16 @@ export default function StudentChatHub() {
     instituteCode,
   });
 
-  // Split conversations by type
   const adminDMs = useMemo(() => conversations.filter((c) => c.dm_type === "admin_student"), [conversations]);
   const teacherDMs = useMemo(() => conversations.filter((c) => c.dm_type === "teacher_student"), [conversations]);
 
-  // Start admin DM
   const startAdminDM = async () => {
     if (!adminProfile || !currentUserId || !instituteCode) return;
     setStartingDM(true);
     const { data, error } = await supabase.rpc("get_or_create_dm_conversation", {
       p_admin_id: adminProfile.user_id,
       p_other_user_id: currentUserId,
-      p_dm_type: "admin_student",
+      p_dm_type: "admin_student" as DmType,
       p_institute_code: instituteCode,
     });
     setStartingDM(false);
@@ -89,14 +81,14 @@ export default function StudentChatHub() {
     navigate(`/dm/${data}`);
   };
 
-  // Start teacher DM (teacher is "admin_id" side)
+  // CRIT-02 fix: Remove "as any" cast, use proper DmType
   const startTeacherDM = useCallback(async (teacherId: string) => {
     if (!currentUserId || !instituteCode) return;
     setStartingDM(true);
     const { data, error } = await supabase.rpc("get_or_create_dm_conversation", {
       p_admin_id: teacherId,
       p_other_user_id: currentUserId,
-      p_dm_type: "teacher_student" as any,
+      p_dm_type: "teacher_student" as DmType,
       p_institute_code: instituteCode,
     });
     setStartingDM(false);
@@ -107,7 +99,7 @@ export default function StudentChatHub() {
     navigate(`/dm/${data}`);
   }, [currentUserId, instituteCode, navigate]);
 
-  // Build teacher contacts from batches + existing DMs
+  // HIGH-04: Sort teacher contacts by recent activity
   const teacherContacts = useMemo(() => {
     interface TeacherContact {
       userId: string;
@@ -135,7 +127,6 @@ export default function StudentChatHub() {
       }
     });
 
-    // Merge existing DM data
     teacherDMs.forEach((c) => {
       const teacherId = c.admin_id;
       const contact = map.get(teacherId);
@@ -147,12 +138,16 @@ export default function StudentChatHub() {
       }
     });
 
-    return Array.from(map.values());
+    return Array.from(map.values()).sort((a, b) => {
+      if (!a.lastMessageAt && !b.lastMessageAt) return 0;
+      if (!a.lastMessageAt) return 1;
+      if (!b.lastMessageAt) return -1;
+      return new Date(b.lastMessageAt).getTime() - new Date(a.lastMessageAt).getTime();
+    });
   }, [batches, teacherDMs]);
 
   const q = debouncedSearch.toLowerCase();
 
-  // All threads (batches + all DMs)
   const allThreads = useMemo(() => {
     type Thread = {
       key: string; name: string; subtitle: string;
@@ -167,7 +162,8 @@ export default function StudentChatHub() {
         key: `batch-${b.id}`, name: b.name, subtitle: b.course,
         lastMessage: lm ? lm.last_message : null,
         lastMessageAt: lm ? lm.last_message_at : b.updated_at,
-        unreadCount: 0, onClick: () => navigate(`/batch/${b.id}`), isGroup: true,
+        unreadCount: batchUnreadCounts[b.id] || 0,
+        onClick: () => navigate(`/batch/${b.id}`), isGroup: true,
       });
     });
 
@@ -199,9 +195,8 @@ export default function StudentChatHub() {
         return new Date(b.lastMessageAt).getTime() - new Date(a.lastMessageAt).getTime();
       })
       .filter((t) => t.name.toLowerCase().includes(q) || (t.lastMessage ?? "").toLowerCase().includes(q));
-  }, [batches, batchLastMsgs, adminDMs, teacherDMs, adminProfile, teacherContacts, navigate, q]);
+  }, [batches, batchLastMsgs, batchUnreadCounts, adminDMs, teacherDMs, adminProfile, teacherContacts, navigate, q]);
 
-  // ── Skeleton loading state ────────────────────────────────
   if (isLoading && !data) {
     return (
       <DashboardLayout title="Chats" role="student">
@@ -274,7 +269,7 @@ export default function StudentChatHub() {
           {activeTab === "all" && (
             <>
               {allThreads.length === 0 ? (
-                <EmptyState icon={MessageSquare} message={debouncedSearch ? "No conversations match your search." : "Join a batch to see your group chats here."} />
+                <ChatEmptyState icon={MessageSquare} message={debouncedSearch ? "No conversations match your search." : "Join a batch to see your group chats here."} />
               ) : (
                 allThreads.map((t) => (
                   <ChatListItem key={t.key} name={t.name} subtitle={t.subtitle} lastMessage={t.lastMessage} lastMessageAt={t.lastMessageAt} unreadCount={t.unreadCount} onClick={t.onClick} isGroup={t.isGroup} />
@@ -319,7 +314,7 @@ export default function StudentChatHub() {
           {activeTab === "teachers" && (
             <>
               {teacherContacts.length === 0 ? (
-                <EmptyState icon={BookOpen} message="No teachers found. Join a batch to see your teachers here." />
+                <ChatEmptyState icon={BookOpen} message="No teachers found. Join a batch to see your teachers here." />
               ) : (
                 teacherContacts
                   .filter((t) => t.name.toLowerCase().includes(q))
@@ -328,7 +323,7 @@ export default function StudentChatHub() {
                       key={t.userId}
                       name={t.name}
                       subtitle={t.batchNames.join(", ")}
-                      lastMessage={t.lastMessage ?? "Tap to message"}
+                      lastMessage={t.lastMessage}
                       lastMessageAt={t.lastMessageAt}
                       unreadCount={t.unreadCount}
                       onClick={() => t.conversationId ? navigate(`/dm/${t.conversationId}`) : startTeacherDM(t.userId)}
@@ -340,16 +335,5 @@ export default function StudentChatHub() {
         </div>
       </div>
     </DashboardLayout>
-  );
-}
-
-function EmptyState({ icon: Icon, message }: { icon: React.ElementType; message: string }) {
-  return (
-    <div className="flex flex-col items-center justify-center py-20 text-center px-6">
-      <div className="w-14 h-14 rounded-full bg-muted flex items-center justify-center mb-4">
-        <Icon className="w-6 h-6 text-muted-foreground opacity-60" />
-      </div>
-      <p className="text-sm text-muted-foreground max-w-xs">{message}</p>
-    </div>
   );
 }
