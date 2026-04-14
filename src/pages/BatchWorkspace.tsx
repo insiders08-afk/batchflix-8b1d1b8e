@@ -180,6 +180,19 @@ export default function BatchWorkspace() {
   const [showScrollDown, setShowScrollDown] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // HIGH-01: Mark batch as read on mount and tab focus
+  useEffect(() => {
+    if (!batchId || !currentUserId) return;
+    const markRead = () => {
+      if (document.visibilityState === "visible") {
+        supabase.rpc("mark_batch_read", { p_batch_id: batchId });
+      }
+    };
+    markRead();
+    document.addEventListener("visibilitychange", markRead);
+    return () => document.removeEventListener("visibilitychange", markRead);
+  }, [batchId, currentUserId]);
+
   // Attendance
   const [students, setStudents] = useState<Student[]>([]);
   const [attendance, setAttendance] = useState<Record<string, boolean>>({});

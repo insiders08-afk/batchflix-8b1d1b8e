@@ -990,6 +990,7 @@ export type Database = {
         }
         Returns: boolean
       }
+      mark_batch_read: { Args: { p_batch_id: string }; Returns: undefined }
       mark_dm_read: { Args: { p_conversation_id: string }; Returns: undefined }
     }
     Enums: {

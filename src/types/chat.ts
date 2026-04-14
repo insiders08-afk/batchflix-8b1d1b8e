@@ -41,20 +41,6 @@ export interface DirectMessage {
   isSelf?: boolean;
 }
 
-// Unified thread type for the "All" tab in chat hubs
-export type ChatThreadType = "batch_group" | "dm";
-
-export interface UnifiedChatThread {
-  id: string;              // batch_id or conversation_id
-  type: ChatThreadType;
-  name: string;            // batch name or person name
-  subtitle: string;        // course name or role label
-  lastMessage: string | null;
-  lastMessageAt: string | null;
-  unreadCount: number;
-  avatarInitials: string;
-}
-
 // Batch last message (from get_batch_last_messages RPC)
 export interface BatchLastMessage {
   batch_id: string;
