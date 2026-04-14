@@ -18,6 +18,7 @@ import { fetchStudentHubData, HUB_STALE_TIME, HUB_GC_TIME } from "@/lib/hubQueri
 import type { StudentHubData, HubBatch, HubUserProfile } from "@/lib/hubQueries";
 import { useDebounce } from "@/hooks/useDebounce";
 import type { DmType } from "@/types/chat";
+import { useDMPrefetch } from "@/hooks/useDMPrefetch";
 
 type Tab = "all" | "admin_dm" | "teachers";
 
@@ -64,6 +65,10 @@ export default function StudentChatHub() {
     instituteCode,
   });
 
+  // ── Silently pre-warm top-5 DM threads in background ────
+  useDMPrefetch(conversations);
+
+  // Split conversations by type
   const adminDMs = useMemo(() => conversations.filter((c) => c.dm_type === "admin_student"), [conversations]);
   const teacherDMs = useMemo(() => conversations.filter((c) => c.dm_type === "teacher_student"), [conversations]);
 

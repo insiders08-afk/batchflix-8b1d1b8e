@@ -18,6 +18,7 @@ import { fetchTeacherHubData, HUB_STALE_TIME, HUB_GC_TIME } from "@/lib/hubQueri
 import type { TeacherHubData, HubBatch, HubUserProfile } from "@/lib/hubQueries";
 import { useDebounce } from "@/hooks/useDebounce";
 import type { DmType } from "@/types/chat";
+import { useDMPrefetch } from "@/hooks/useDMPrefetch";
 
 type Tab = "all" | "admin_dm" | "students";
 
@@ -74,6 +75,10 @@ export default function TeacherChatHub() {
     instituteCode,
   });
 
+  // ── Silently pre-warm top-5 DM threads in background ────
+  useDMPrefetch(conversations);
+
+  // Fetch profiles for all "other" users in conversations
   useEffect(() => {
     if (!currentUserId || conversations.length === 0) return;
     const otherIds = [...new Set(conversations.map((c) =>

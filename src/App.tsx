@@ -59,7 +59,16 @@ const TeacherChatHub = lazy(() => import("./pages/TeacherChatHub"));
 const StudentChatHub = lazy(() => import("./pages/StudentChatHub"));
 const DMConversation = lazy(() => import("./pages/DMConversation"));
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 1000 * 60 * 5,  // 5 min — data considered fresh
+      gcTime:    1000 * 60 * 10, // 10 min — keep in memory after unmount
+      retry: 2,
+      refetchOnWindowFocus: false,
+    },
+  },
+});
 
 const App = () => (
   <ErrorBoundary>

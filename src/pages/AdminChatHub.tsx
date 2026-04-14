@@ -16,6 +16,7 @@ import { saveHubCache, loadHubCache } from "@/lib/hubCache";
 import { useQuery } from "@tanstack/react-query";
 import { fetchAdminHubData, HUB_STALE_TIME, HUB_GC_TIME } from "@/lib/hubQueries";
 import type { AdminHubData, HubBatch, HubUserProfile } from "@/lib/hubQueries";
+import { useDMPrefetch } from "@/hooks/useDMPrefetch";
 
 type Tab = "all" | "batches" | "teachers" | "students";
 
@@ -63,6 +64,10 @@ export default function AdminChatHub() {
     instituteCode,
   });
 
+  // ── Silently pre-warm top-5 DM threads in background ────
+  useDMPrefetch(conversations);
+
+  // Map conversations by other_user_id for quick lookup
   const convByUser = useMemo(() => {
     const map: Record<string, DirectConversation> = {};
     conversations.forEach((c) => {

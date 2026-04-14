@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { clearHubCache, clearMessagesCache } from "@/lib/hubCache";
 
 export interface AuthUser {
   userId: string;
@@ -30,21 +31,21 @@ const AuthContext = createContext<AuthContextType>({
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [authUser, setAuthUser] = useState<AuthUser | null>(() => {
     try {
-      const cached = sessionStorage.getItem(CACHE_KEY);
+      const cached = localStorage.getItem(CACHE_KEY);
       return cached ? JSON.parse(cached) : null;
     } catch {
       return null;
     }
   });
 
-  const [authLoading, setAuthLoading] = useState(!sessionStorage.getItem(CACHE_KEY));
+  const [authLoading, setAuthLoading] = useState(!localStorage.getItem(CACHE_KEY));
 
   const loadUser = async () => {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session?.user) {
       setAuthUser(null);
       setAuthLoading(false);
-      sessionStorage.removeItem(CACHE_KEY);
+      localStorage.removeItem(CACHE_KEY);
       return;
     }
 
@@ -101,7 +102,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     setAuthUser(newUser);
     setAuthLoading(false);
-    sessionStorage.setItem(CACHE_KEY, JSON.stringify(newUser));
+    localStorage.setItem(CACHE_KEY, JSON.stringify(newUser));
   };
 
   useEffect(() => {
@@ -110,7 +111,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (event === "SIGNED_OUT") {
         setAuthUser(null);
         setAuthLoading(false);
-        sessionStorage.removeItem(CACHE_KEY);
+        localStorage.removeItem(CACHE_KEY);
+        clearHubCache();
+        clearMessagesCache();
       } else if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED") {
         loadUser();
       }

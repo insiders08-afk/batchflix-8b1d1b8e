@@ -1,8 +1,9 @@
 /// <reference lib="webworker" />
 import { cleanupOutdatedCaches, precacheAndRoute } from "workbox-precaching";
 import { registerRoute } from "workbox-routing";
-import { CacheFirst, StaleWhileRevalidate } from "workbox-strategies";
+import { CacheFirst, StaleWhileRevalidate, NetworkOnly } from "workbox-strategies";
 import { ExpirationPlugin } from "workbox-expiration";
+import { BackgroundSyncPlugin } from "workbox-background-sync";
 
 declare let self: ServiceWorkerGlobalScope;
 
@@ -11,7 +12,6 @@ precacheAndRoute(self.__WB_MANIFEST);
 cleanupOutdatedCaches();
 
 // ─── Runtime caching: JS/CSS assets (cache-first, 1 year) ────────────────────
-// Catches any asset not in the precache manifest (e.g. dynamic imports loaded later)
 registerRoute(
   ({ url }) => url.pathname.startsWith("/assets/"),
   new CacheFirst({
@@ -48,6 +48,31 @@ registerRoute(
       }),
     ],
   })
+);
+
+// ─── Route: Supabase DM INSERT requests → background-sync queue ──────────────
+// Intercepts POST/PATCH requests to Supabase REST for direct_messages table.
+// Network-first: if online, fires normally. If offline, queued for later sync.
+registerRoute(
+  ({ url, request }) =>
+    url.hostname.includes("supabase") &&
+    url.pathname.includes("direct_messages") &&
+    (request.method === "POST" || request.method === "PATCH"),
+  new NetworkOnly({
+    plugins: [new BackgroundSyncPlugin("bh-dm-messages", { maxRetentionTime: 24 * 60 })],
+  }),
+  "POST"
+);
+
+registerRoute(
+  ({ url, request }) =>
+    url.hostname.includes("supabase") &&
+    url.pathname.includes("batch_messages") &&
+    (request.method === "POST" || request.method === "PATCH"),
+  new NetworkOnly({
+    plugins: [new BackgroundSyncPlugin("bh-batch-messages", { maxRetentionTime: 24 * 60 })],
+  }),
+  "POST"
 );
 
 // ─── Push notification handler ───────────────────────────────────────────────
