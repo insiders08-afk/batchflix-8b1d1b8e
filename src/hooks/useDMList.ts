@@ -85,8 +85,8 @@ export function useDMList({ currentUserId, currentUserRole, instituteCode }: Use
 
   // HIGH-02: Use optimistic updates from realtime payload instead of full refetch
   const handleConversationUpdate = useCallback(
-    (payload: { new: Record<string, unknown> }) => {
-      const updated = payload.new as DirectConversation;
+    (payload: { new: unknown }) => {
+      const updated = payload.new as unknown as DirectConversation;
       queryClient.setQueryData<DirectConversation[]>(queryKey, (prev) => {
         if (!prev) return prev;
         const exists = prev.some((c) => c.id === updated.id);
