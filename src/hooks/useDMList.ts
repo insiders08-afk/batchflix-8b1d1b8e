@@ -46,7 +46,10 @@ export function useDMList({ currentUserId, currentUserRole, instituteCode }: Use
   const queryClient = useQueryClient();
   const channelRef = useRef<ReturnType<typeof supabase.channel>[]>([]);
 
-  const queryKey = ["dm-list", currentUserId, currentUserRole, instituteCode];
+  const queryKey = useMemo(
+    () => ["dm-list", currentUserId, currentUserRole, instituteCode],
+    [currentUserId, currentUserRole, instituteCode]
+  );
   const cacheKey = `dm_list_${currentUserRole}_${currentUserId}`;
 
   const { data: conversations = [], isLoading: loading } = useQuery<DirectConversation[]>({
