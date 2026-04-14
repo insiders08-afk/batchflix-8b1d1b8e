@@ -6,8 +6,10 @@ import { supabase } from "@/integrations/supabase/client";
 import DashboardLayout from "@/components/DashboardLayout";
 import { ChatListItem } from "@/components/chat/ChatListItem";
 import { ChatSearchBar } from "@/components/chat/ChatSearchBar";
+import { ChatEmptyState } from "@/components/chat/ChatEmptyState";
 import { useDMList } from "@/hooks/useDMList";
 import { useBatchLastMessages } from "@/hooks/useBatchLastMessages";
+import { useBatchUnreadCounts } from "@/hooks/useBatchUnreadCounts";
 import { useAuth } from "@/contexts/AuthContext";
 import type { DirectConversation } from "@/types/chat";
 import { saveHubCache, loadHubCache } from "@/lib/hubCache";
@@ -27,7 +29,6 @@ export default function AdminChatHub() {
   const instituteCode = authUser?.instituteCode ?? "";
   const instituteName = authUser?.instituteName ?? "";
 
-  // ── React Query for hub data ──────────────────────────────
   const { data, isLoading } = useQuery<AdminHubData>({
     queryKey: ["admin-hub", instituteCode],
     queryFn: fetchAdminHubData(instituteCode),
@@ -45,7 +46,6 @@ export default function AdminChatHub() {
   const teachers = data?.teachers || [];
   const students = data?.students || [];
 
-  // Sync to hubCache when data changes
   useEffect(() => {
     if (!data) return;
     saveHubCache("admin_batches", data.batches);
@@ -53,17 +53,16 @@ export default function AdminChatHub() {
     saveHubCache("admin_students", data.students);
   }, [data]);
 
-  // ── Realtime batch last messages ──────────────────────────
   const { batchLastMsgs } = useBatchLastMessages(instituteCode);
+  // HIGH-01: Batch group chat unread counts
+  const { batchUnreadCounts } = useBatchUnreadCounts(currentUserId, instituteCode);
 
-  // ── DM conversation list (already has realtime) ─────────
   const { conversations } = useDMList({
     currentUserId,
     currentUserRole: "admin",
     instituteCode,
   });
 
-  // Map conversations by other_user_id for quick lookup
   const convByUser = useMemo(() => {
     const map: Record<string, DirectConversation> = {};
     conversations.forEach((c) => {
@@ -72,7 +71,14 @@ export default function AdminChatHub() {
     return map;
   }, [conversations]);
 
-  // ── Open or create DM with a user ───────────────────────
+  // MED-08: Pre-compute profileById map for O(1) lookup
+  const profileById = useMemo(() => {
+    const m: Record<string, HubUserProfile> = {};
+    teachers.forEach((t) => { m[t.user_id] = t; });
+    students.forEach((s) => { m[s.user_id] = s; });
+    return m;
+  }, [teachers, students]);
+
   const openDM = async (userId: string, dmType: "admin_teacher" | "admin_student") => {
     if (!currentUserId || !instituteCode) return;
     const { data, error } = await supabase.rpc("get_or_create_dm_conversation", {
@@ -88,7 +94,6 @@ export default function AdminChatHub() {
     navigate(`/dm/${data}`);
   };
 
-  // ── Search filtering helpers ─────────────────────────────
   const q = search.toLowerCase();
   const filteredBatches = batches.filter(
     (b) => b.name.toLowerCase().includes(q) || b.course.toLowerCase().includes(q)
@@ -96,36 +101,27 @@ export default function AdminChatHub() {
   const filteredTeachers = teachers.filter((t) => t.full_name.toLowerCase().includes(q));
   const filteredStudents = students.filter((s) => s.full_name.toLowerCase().includes(q));
 
-  // ── All tab: merge batches + DMs sorted by last message ───
   const allThreads = useMemo(() => {
     type Thread = {
-      key: string;
-      name: string;
-      subtitle: string;
-      lastMessage: string | null;
-      lastMessageAt: string | null;
-      unreadCount: number;
-      onClick: () => void;
-      isGroup: boolean;
+      key: string; name: string; subtitle: string;
+      lastMessage: string | null; lastMessageAt: string | null;
+      unreadCount: number; onClick: () => void; isGroup: boolean;
     };
     const threads: Thread[] = [];
 
     batches.forEach((b) => {
       const lm = batchLastMsgs[b.id];
       threads.push({
-        key: `batch-${b.id}`,
-        name: b.name,
-        subtitle: b.course,
+        key: `batch-${b.id}`, name: b.name, subtitle: b.course,
         lastMessage: lm ? lm.last_message : null,
         lastMessageAt: lm ? lm.last_message_at : b.updated_at,
-        unreadCount: 0,
-        onClick: () => navigate(`/batch/${b.id}`),
-        isGroup: true,
+        unreadCount: batchUnreadCounts[b.id] || 0,
+        onClick: () => navigate(`/batch/${b.id}`), isGroup: true,
       });
     });
 
     conversations.forEach((c) => {
-      const person = [...teachers, ...students].find((p) => p.user_id === c.other_user_id);
+      const person = profileById[c.other_user_id];
       threads.push({
         key: `dm-${c.id}`,
         name: person?.full_name ?? "Unknown",
@@ -133,8 +129,7 @@ export default function AdminChatHub() {
         lastMessage: c.last_message_preview,
         lastMessageAt: c.last_message_at,
         unreadCount: c.admin_unread_count,
-        onClick: () => navigate(`/dm/${c.id}`),
-        isGroup: false,
+        onClick: () => navigate(`/dm/${c.id}`), isGroup: false,
       });
     });
 
@@ -150,9 +145,8 @@ export default function AdminChatHub() {
           t.name.toLowerCase().includes(q) ||
           (t.lastMessage ?? "").toLowerCase().includes(q)
       );
-  }, [batches, batchLastMsgs, conversations, teachers, students, navigate, q]);
+  }, [batches, batchLastMsgs, batchUnreadCounts, conversations, profileById, navigate, q]);
 
-  // ── Skeleton loading state ────────────────────────────────
   if (isLoading && !data) {
     return (
       <DashboardLayout title="Chats" role="admin">
@@ -194,17 +188,14 @@ export default function AdminChatHub() {
   return (
     <DashboardLayout title="Chats" role="admin">
       <div className="-m-3 sm:-m-4 md:-m-6 flex flex-col h-full min-h-[calc(100vh-60px)]">
-        {/* Header */}
         <div className="px-4 pt-4 pb-3 border-b border-border/40 bg-card/80">
           <h2 className="font-display font-bold text-lg truncate">{instituteName}</h2>
           <p className="text-xs text-muted-foreground mt-0.5">Messages &amp; conversations</p>
 
-          {/* Search */}
           <div className="mt-3">
             <ChatSearchBar value={search} onChange={setSearch} />
           </div>
 
-          {/* Tab toggle */}
           <div className="flex gap-1 mt-3 overflow-x-auto pb-1 scrollbar-hide">
             {TABS.map((tab) => (
               <button
@@ -225,12 +216,11 @@ export default function AdminChatHub() {
           </div>
         </div>
 
-        {/* Lists */}
         <div className="flex-1 overflow-y-auto">
           {activeTab === "all" && (
             <>
               {allThreads.length === 0 ? (
-                <EmptyState icon={MessageSquare} message={search ? "No conversations match your search." : "No conversations yet. Start chatting from the Teachers or Students tabs."} />
+                <ChatEmptyState icon={MessageSquare} message={search ? "No conversations match your search." : "No conversations yet. Start chatting from the Teachers or Students tabs."} />
               ) : (
                 allThreads.map((t) => (
                   <ChatListItem key={t.key} name={t.name} subtitle={t.subtitle} lastMessage={t.lastMessage} lastMessageAt={t.lastMessageAt} unreadCount={t.unreadCount} onClick={t.onClick} isGroup={t.isGroup} />
@@ -242,12 +232,12 @@ export default function AdminChatHub() {
           {activeTab === "batches" && (
             <>
               {filteredBatches.length === 0 ? (
-                <EmptyState icon={MessageSquare} message={search ? "No batches match your search." : "No active batches yet."} />
+                <ChatEmptyState icon={MessageSquare} message={search ? "No batches match your search." : "No active batches yet."} />
               ) : (
                 filteredBatches.map((b) => {
                   const lm = batchLastMsgs[b.id];
                   return (
-                    <ChatListItem key={b.id} name={b.name} subtitle={b.course} lastMessage={lm?.last_message ?? null} lastMessageAt={lm?.last_message_at ?? b.updated_at} unreadCount={0} onClick={() => navigate(`/batch/${b.id}`)} isGroup />
+                    <ChatListItem key={b.id} name={b.name} subtitle={b.course} lastMessage={lm?.last_message ?? null} lastMessageAt={lm?.last_message_at ?? b.updated_at} unreadCount={batchUnreadCounts[b.id] || 0} onClick={() => navigate(`/batch/${b.id}`)} isGroup />
                   );
                 })
               )}
@@ -257,7 +247,7 @@ export default function AdminChatHub() {
           {activeTab === "teachers" && (
             <>
               {filteredTeachers.length === 0 ? (
-                <EmptyState icon={Users} message={search ? "No teachers match your search." : "No teachers in your institute yet."} />
+                <ChatEmptyState icon={Users} message={search ? "No teachers match your search." : "No teachers in your institute yet."} />
               ) : (
                 filteredTeachers.map((t) => {
                   const conv = convByUser[t.user_id];
@@ -272,7 +262,7 @@ export default function AdminChatHub() {
           {activeTab === "students" && (
             <>
               {filteredStudents.length === 0 ? (
-                <EmptyState icon={GraduationCap} message={search ? "No students match your search." : "No students enrolled yet."} />
+                <ChatEmptyState icon={GraduationCap} message={search ? "No students match your search." : "No students enrolled yet."} />
               ) : (
                 filteredStudents.map((s) => {
                   const conv = convByUser[s.user_id];
@@ -286,16 +276,5 @@ export default function AdminChatHub() {
         </div>
       </div>
     </DashboardLayout>
-  );
-}
-
-function EmptyState({ icon: Icon, message }: { icon: React.ElementType; message: string }) {
-  return (
-    <div className="flex flex-col items-center justify-center py-20 text-center px-6">
-      <div className="w-14 h-14 rounded-full bg-muted flex items-center justify-center mb-4">
-        <Icon className="w-6 h-6 text-muted-foreground opacity-60" />
-      </div>
-      <p className="text-sm text-muted-foreground max-w-xs">{message}</p>
-    </div>
   );
 }

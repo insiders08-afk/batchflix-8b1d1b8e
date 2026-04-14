@@ -68,19 +68,35 @@ export function useDirectMessages({
   const [loading, setLoading] = useState(messages.length === 0);
   const [hasMore, setHasMore] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+  // MED-09: Error state for failed message loads
+  const [error, setError] = useState<string | null>(null);
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const sendInFlightRef = useRef(false);
   const [channelStatus, setChannelStatus] = useState<string>("CLOSED");
+  // HIGH-07: Guard against unmount state updates
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
 
   // ── Fetch latest messages ─────────────────────────────────
   const fetchMessages = useCallback(async () => {
     if (!conversationId) return;
-    const { data } = await supabase
+    setError(null);
+    const { data, error: fetchError } = await supabase
       .from("direct_messages")
       .select("*")
       .eq("conversation_id", conversationId)
       .order("created_at", { ascending: false })
       .limit(PAGE_SIZE);
+    if (!mountedRef.current) return;
+    if (fetchError) {
+      setError("Failed to load messages");
+      setLoading(false);
+      return;
+    }
     if (data) {
       const mapped = data.reverse().map((m) => mapDirectMessage(m as DirectMessage, currentUserId));
       setMessages(mapped);
@@ -105,6 +121,7 @@ export function useDirectMessages({
       .order("created_at", { ascending: false })
       .limit(PAGE_SIZE);
 
+    if (!mountedRef.current) return;
     if (data) {
       const mapped = data.reverse().map((m) => mapDirectMessage(m as DirectMessage, currentUserId));
       setMessages((prev) => [...mapped, ...prev]);
@@ -115,18 +132,20 @@ export function useDirectMessages({
     setLoadingMore(false);
   }, [conversationId, currentUserId, messages, loadingMore, hasMore]);
 
-  // B-5: Combined fetch + subscribe in a single effect to prevent double-fetch
+  // LOW-08: Use ref for fetchMessages to avoid re-subscription on reference change
+  const fetchMessagesRef = useRef(fetchMessages);
+  fetchMessagesRef.current = fetchMessages;
+
+  // Combined fetch + subscribe in a single effect
   useEffect(() => {
     if (!conversationId) return;
 
-    // Remove any previous channel before creating a new one
     if (channelRef.current) {
       supabase.removeChannel(channelRef.current);
       channelRef.current = null;
     }
 
-    // Fetch messages first
-    fetchMessages();
+    fetchMessagesRef.current();
 
     const channel = supabase
       .channel(`dm-${conversationId}-${Date.now()}`)
@@ -139,6 +158,7 @@ export function useDirectMessages({
           filter: `conversation_id=eq.${conversationId}`,
         },
         (payload) => {
+          if (!mountedRef.current) return;
           const msg = payload.new as DirectMessage;
           setMessages((prev) => {
             const next = reconcileIncomingMessage(prev, msg, currentUserId);
@@ -156,9 +176,10 @@ export function useDirectMessages({
           filter: `conversation_id=eq.${conversationId}`,
         },
         (payload) => {
+          if (!mountedRef.current) return;
           const updated = payload.new as DirectMessage;
-          setMessages((prev) =>
-            prev.map((m) =>
+          setMessages((prev) => {
+            const next = prev.map((m) =>
               m.id === updated.id
                 ? {
                     ...m,
@@ -171,13 +192,15 @@ export function useDirectMessages({
                     file_type: updated.file_type,
                   }
                 : m
-            )
-          );
+            );
+            // MED-07: Update cache on edit/delete
+            saveCachedMessages(cacheKey, next);
+            return next;
+          });
         }
       )
       .subscribe((status) => {
-        // B-14: Track channel status for "Live" indicator
-        setChannelStatus(status);
+        if (mountedRef.current) setChannelStatus(status);
       });
 
     channelRef.current = channel;
@@ -185,7 +208,17 @@ export function useDirectMessages({
       supabase.removeChannel(channel);
       channelRef.current = null;
     };
-  }, [conversationId, currentUserId, fetchMessages]);
+  }, [conversationId, currentUserId, cacheKey]);
+
+  // HIGH-06: Reconnection handler
+  useEffect(() => {
+    if (!conversationId) return;
+    const handler = () => {
+      if (navigator.onLine) fetchMessagesRef.current();
+    };
+    window.addEventListener("online", handler);
+    return () => window.removeEventListener("online", handler);
+  }, [conversationId]);
 
   // ── Mark conversation as read ──────────────────────────────
   const markAsRead = useCallback(async () => {
@@ -194,7 +227,6 @@ export function useDirectMessages({
   }, [conversationId]);
 
   // ── File upload ────────────────────────────────────────────
-  // B-3: Use getPublicUrl since chat-files bucket IS public (per storage config)
   const uploadFile = async (
     file: File
   ): Promise<{ url: string; name: string; type: string } | null> => {
@@ -249,10 +281,9 @@ export function useDirectMessages({
           if (!fileData) return;
         }
 
-        // B-6: Use descriptive message for file-only messages instead of empty string
         const messageText = text.trim() || (fileData ? `📎 ${fileData.name}` : "");
 
-        // Optimistic send: add message locally before DB insert
+        // Optimistic send
         const optimisticId = `optimistic-${Date.now()}`;
         const optimisticMsg: DirectMessage = {
           id: optimisticId,
@@ -387,6 +418,7 @@ export function useDirectMessages({
     loading,
     loadingMore,
     hasMore,
+    error,
     loadOlderMessages,
     sendMessage,
     editMessage,

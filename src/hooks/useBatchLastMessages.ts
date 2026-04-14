@@ -4,7 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import type { BatchLastMessage } from "@/types/chat";
 import { saveHubCache, loadHubCache } from "@/lib/hubCache";
 
-const STALE_TIME = 30 * 1000; // 30 seconds for fresher batch chat data
+const STALE_TIME = 30 * 1000;
 
 async function fetchBatchLastMsgs(instituteCode: string): Promise<Record<string, BatchLastMessage>> {
   if (!instituteCode) return {};
@@ -39,7 +39,7 @@ export function useBatchLastMessages(instituteCode: string) {
     queryClient.invalidateQueries({ queryKey });
   }, [queryClient, queryKey]);
 
-  // Realtime subscription
+  // MED-04: Only trigger on INSERT events (edits/reactions don't change last message)
   useEffect(() => {
     if (!instituteCode) return;
 
@@ -51,7 +51,7 @@ export function useBatchLastMessages(instituteCode: string) {
     const channel = supabase
       .channel(`batch-msgs-hub-${instituteCode}-${Date.now()}`)
       .on("postgres_changes", {
-        event: "*", schema: "public", table: "batch_messages",
+        event: "INSERT", schema: "public", table: "batch_messages",
         filter: `institute_code=eq.${instituteCode}`,
       }, () => refetch())
       .subscribe();

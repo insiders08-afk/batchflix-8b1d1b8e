@@ -143,6 +143,24 @@ export type Database = {
           },
         ]
       }
+      batch_message_reads: {
+        Row: {
+          batch_id: string
+          last_read_at: string
+          user_id: string
+        }
+        Insert: {
+          batch_id: string
+          last_read_at?: string
+          user_id: string
+        }
+        Update: {
+          batch_id?: string
+          last_read_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       batch_messages: {
         Row: {
           batch_id: string
@@ -945,6 +963,13 @@ export type Database = {
           last_message: string
           last_message_at: string
           sender_name: string
+        }[]
+      }
+      get_batch_unread_counts: {
+        Args: { p_institute_code: string; p_user_id: string }
+        Returns: {
+          batch_id: string
+          unread_count: number
         }[]
       }
       get_my_child_user_id: { Args: never; Returns: string }
