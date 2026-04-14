@@ -298,9 +298,16 @@ export default function BatchWorkspace() {
         (payload) => {
           const msg = payload.new as ChatMessage;
           setMessages((prev) => {
-            if (prev.some((m) => m.id === msg.id)) return prev;
+            // HIGH-03: Reconcile optimistic messages
+            const isOptimisticMatch = prev.some(
+              (m) => m.id.startsWith("optimistic-") && m.sender_id === msg.sender_id && m.message === msg.message
+            );
+            const filtered = isOptimisticMatch
+              ? prev.filter((m) => !(m.id.startsWith("optimistic-") && m.sender_id === msg.sender_id && m.message === msg.message))
+              : prev;
+            if (filtered.some((m) => m.id === msg.id)) return filtered;
             const next = [
-              ...prev,
+              ...filtered,
               {
                 ...msg,
                 reactions: (msg.reactions ?? {}) as Record<string, string[]>,
