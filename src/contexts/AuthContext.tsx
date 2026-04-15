@@ -114,7 +114,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         localStorage.removeItem(CACHE_KEY);
         clearHubCache();
         clearMessagesCache();
-      } else if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED") {
+      } else if (event === "SIGNED_IN") {
+        // Mark as loading BEFORE loadUser runs — prevents DashboardLayout's
+        // auth guard from seeing stale authUser=null and redirecting to
+        // /role-select or /auth/* before the fresh user data arrives.
+        setAuthLoading(true);
+        loadUser();
+      } else if (event === "TOKEN_REFRESHED") {
         loadUser();
       }
     });
