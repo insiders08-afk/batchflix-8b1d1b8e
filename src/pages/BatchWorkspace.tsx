@@ -153,6 +153,8 @@ export default function BatchWorkspace() {
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const initialScrollDone = useRef(false);
+  const mountedRef = useRef(true);
+  const chatChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 
   const [batch, setBatch] = useState<BatchInfo | null>(null);
   const currentUserId = authUser?.userId ?? "";
@@ -180,6 +182,13 @@ export default function BatchWorkspace() {
   const [editingMessage, setEditingMessage] = useState<ChatMessage | null>(null);
   const [showScrollDown, setShowScrollDown] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   // HIGH-01: Mark batch as read on mount and tab focus
   // Also optimistically zero the unread count in the hub cache
@@ -349,12 +358,21 @@ export default function BatchWorkspace() {
   // Realtime chat subscription
   useEffect(() => {
     if (!batchId) return;
+
+    if (chatChannelRef.current) {
+      supabase.removeChannel(chatChannelRef.current);
+      chatChannelRef.current = null;
+    }
+
+    setChatChannelStatus("CONNECTING");
+
     const channel = supabase
-      .channel(`batch-chat-${batchId}`)
+      .channel(`batch-chat-${batchId}-${Date.now()}`)
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "batch_messages", filter: `batch_id=eq.${batchId}` },
         (payload) => {
+          if (!mountedRef.current) return;
           const msg = normalizeBatchMessage(payload.new as ChatMessage, currentUserId);
           setMessages((prev) => {
             const filtered = prev.filter((m) => !matchesOptimisticBatchMessage(m, msg));
@@ -370,29 +388,42 @@ export default function BatchWorkspace() {
         "postgres_changes",
         { event: "UPDATE", schema: "public", table: "batch_messages", filter: `batch_id=eq.${batchId}` },
         (payload) => {
+          if (!mountedRef.current) return;
           const updated = payload.new as ChatMessage;
-          setMessages((prev) =>
-            prev.map((m) =>
+          setMessages((prev) => {
+            const next = prev.map((m) =>
               m.id === updated.id
                 ? { 
                     ...m, 
                     reactions: (updated.reactions ?? {}) as Record<string, string[]>, 
                     message: updated.message,
                     is_deleted: updated.is_deleted,
-                    is_edited: updated.is_edited
+                    is_edited: updated.is_edited,
+                    file_url: updated.file_url,
+                    file_name: updated.file_name,
+                    file_type: updated.file_type,
                   }
                 : m,
-            ),
-          );
+            );
+            saveCachedMessages(batchCacheKey, next);
+            return next;
+          });
         },
       )
       .subscribe((status) => {
+        if (!mountedRef.current) return;
         setChatChannelStatus(status);
       });
+
+    chatChannelRef.current = channel;
+
     return () => {
       supabase.removeChannel(channel);
+      if (chatChannelRef.current === channel) {
+        chatChannelRef.current = null;
+      }
     };
-  }, [batchId, currentUserId]);
+  }, [batchId, currentUserId, batchCacheKey]);
 
   // Realtime announcements subscription
   useEffect(() => {
