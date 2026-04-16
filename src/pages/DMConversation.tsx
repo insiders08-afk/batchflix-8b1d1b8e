@@ -19,7 +19,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useDirectMessages } from "@/hooks/useDirectMessages";
-import type { DirectMessage } from "@/types/chat";
+import type { DirectMessage, DirectConversation } from "@/types/chat";
 import { useToast } from "@/hooks/use-toast";
 import { formatChatDate, getMessagePreview, roleLabel } from "@/lib/chatUtils";
 import { useAuth } from "@/contexts/AuthContext";
