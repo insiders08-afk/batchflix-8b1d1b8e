@@ -190,16 +190,19 @@ export default function BatchWorkspace() {
       if (document.visibilityState === "visible") {
         supabase.rpc("mark_batch_read", { p_batch_id: batchId });
         // Optimistically zero the unread count so hub shows 0 immediately on back-nav
-        queryClient.setQueryData<Record<string, number>>(
-          ["batch-unread-counts", currentUserId, instituteCode],
-          (prev) => prev ? { ...prev, [batchId]: 0 } : prev
-        );
+        const ic = authUser?.instituteCode ?? "";
+        if (ic) {
+          queryClient.setQueryData<Record<string, number>>(
+            ["batch-unread-counts", currentUserId, ic],
+            (prev) => prev ? { ...prev, [batchId]: 0 } : prev
+          );
+        }
       }
     };
     markRead();
     document.addEventListener("visibilitychange", markRead);
     return () => document.removeEventListener("visibilitychange", markRead);
-  }, [batchId, currentUserId, instituteCode, queryClient]);
+  }, [batchId, currentUserId, authUser?.instituteCode, queryClient]);
 
   // Attendance
   const [students, setStudents] = useState<Student[]>([]);
