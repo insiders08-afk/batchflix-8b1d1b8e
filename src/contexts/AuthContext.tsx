@@ -122,6 +122,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         loadUser();
       } else if (event === "TOKEN_REFRESHED") {
         loadUser();
+      } else if (event === "TOKEN_REFRESHED" === false && event === "SIGNED_OUT" === false && event === "SIGNED_IN" === false) {
+        // Catch-all: for unknown events do nothing
       }
     });
     return () => subscription.unsubscribe();
