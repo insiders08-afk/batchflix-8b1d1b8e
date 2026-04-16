@@ -43,6 +43,7 @@ export default function DMConversation() {
   const navigate = useNavigate();
   const { toast } = useToast();
   const { authUser } = useAuth();
+  const queryClient = useQueryClient();
 
   const currentUserId = authUser?.userId ?? "";
   const currentUserName = authUser?.userName ?? "";
