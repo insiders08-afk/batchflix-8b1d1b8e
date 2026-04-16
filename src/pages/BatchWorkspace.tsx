@@ -195,22 +195,28 @@ export default function BatchWorkspace() {
   const queryClient = useQueryClient();
   useEffect(() => {
     if (!batchId || !currentUserId) return;
-    const markRead = () => {
+    const markRead = async () => {
       if (document.visibilityState === "visible") {
-        supabase.rpc("mark_batch_read", { p_batch_id: batchId });
+        await supabase.rpc("mark_batch_read", { p_batch_id: batchId });
         // Optimistically zero the unread count so hub shows 0 immediately on back-nav
         const ic = authUser?.instituteCode ?? "";
         if (ic) {
           queryClient.setQueryData<Record<string, number>>(
             ["batch-unread-counts", currentUserId, ic],
-            (prev) => prev ? { ...prev, [batchId]: 0 } : prev
+            (prev) => ({ ...(prev ?? {}), [batchId]: 0 })
           );
+          queryClient.invalidateQueries({
+            queryKey: ["batch-unread-counts", currentUserId, ic],
+          });
         }
       }
     };
-    markRead();
-    document.addEventListener("visibilitychange", markRead);
-    return () => document.removeEventListener("visibilitychange", markRead);
+    void markRead();
+    const handleVisibilityChange = () => {
+      void markRead();
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
   }, [batchId, currentUserId, authUser?.instituteCode, queryClient]);
 
   // Attendance

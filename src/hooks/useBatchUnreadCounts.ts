@@ -22,7 +22,7 @@ async function fetchBatchUnreadCounts(
 
 export function useBatchUnreadCounts(userId: string, instituteCode: string) {
   const queryClient = useQueryClient();
-  const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const channelRef = useRef<ReturnType<typeof supabase.channel>[]>([]);
 
   const queryKey = useMemo(
     () => ["batch-unread-counts", userId, instituteCode],
@@ -45,13 +45,13 @@ export function useBatchUnreadCounts(userId: string, instituteCode: string) {
   useEffect(() => {
     if (!userId || !instituteCode) return;
 
-    if (channelRef.current) {
-      supabase.removeChannel(channelRef.current);
-      channelRef.current = null;
-    }
+    channelRef.current.forEach((channel) => supabase.removeChannel(channel));
+    channelRef.current = [];
 
-    const channel = supabase
-      .channel(`batch-unread-${userId}-${Date.now()}`)
+    const ts = Date.now();
+
+    const messageChannel = supabase
+      .channel(`batch-unread-messages-${userId}-${ts}`)
       .on(
         "postgres_changes",
         {
@@ -64,11 +64,25 @@ export function useBatchUnreadCounts(userId: string, instituteCode: string) {
       )
       .subscribe();
 
-    channelRef.current = channel;
+    const readsChannel = supabase
+      .channel(`batch-unread-reads-${userId}-${ts}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "batch_message_reads",
+          filter: `user_id=eq.${userId}`,
+        },
+        () => refetch()
+      )
+      .subscribe();
+
+    channelRef.current = [messageChannel, readsChannel];
 
     return () => {
-      supabase.removeChannel(channel);
-      channelRef.current = null;
+      [messageChannel, readsChannel].forEach((channel) => supabase.removeChannel(channel));
+      channelRef.current = [];
     };
   }, [userId, instituteCode, refetch]);
 
