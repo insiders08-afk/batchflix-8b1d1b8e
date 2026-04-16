@@ -105,6 +105,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.setItem(CACHE_KEY, JSON.stringify(newUser));
   };
 
+  // Ghost-session guard: if the token can't refresh (e.g. network down for
+  // extended time), Supabase won't fire a specific failure event. We detect
+  // this by periodically checking the session when the app regains focus.
+  useEffect(() => {
+    const verifySession = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session && authUser) {
+        // Token expired and couldn't refresh → clear ghost session
+        setAuthUser(null);
+        setAuthLoading(false);
+        localStorage.removeItem(CACHE_KEY);
+        clearHubCache();
+        clearMessagesCache();
+      }
+    };
+
+    const onFocus = () => verifySession();
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [authUser]);
+
   useEffect(() => {
     loadUser();
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
@@ -115,9 +136,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         clearHubCache();
         clearMessagesCache();
       } else if (event === "SIGNED_IN") {
-        // Mark as loading BEFORE loadUser runs — prevents DashboardLayout's
-        // auth guard from seeing stale authUser=null and redirecting to
-        // /role-select or /auth/* before the fresh user data arrives.
         setAuthLoading(true);
         loadUser();
       } else if (event === "TOKEN_REFRESHED") {

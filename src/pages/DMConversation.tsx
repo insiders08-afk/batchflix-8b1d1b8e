@@ -519,9 +519,13 @@ export default function DMConversation() {
                   )}
                 </span>
 
-                {/* Checkmark for own sent messages */}
+                {/* Checkmark or pending indicator for own messages */}
                 {msg.isSelf && !msg.is_deleted && (
-                  <Check className="w-3 h-3 text-white/60 flex-shrink-0" />
+                  msg.id.startsWith("optimistic-") ? (
+                    <Loader2 className="w-3 h-3 text-white/50 flex-shrink-0 animate-spin" />
+                  ) : (
+                    <Check className="w-3 h-3 text-white/60 flex-shrink-0" />
+                  )
                 )}
 
                 {/* B-5 (DM): Simplified reaction UI — no "See" button, no count badge in 1-on-1 */}
