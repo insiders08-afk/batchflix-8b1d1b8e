@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import { useParams, useNavigate } from "react-router-dom";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -181,17 +182,27 @@ export default function BatchWorkspace() {
   const inputRef = useRef<HTMLInputElement>(null);
 
   // HIGH-01: Mark batch as read on mount and tab focus
+  // Also optimistically zero the unread count in the hub cache
+  const queryClient = useQueryClient();
   useEffect(() => {
     if (!batchId || !currentUserId) return;
     const markRead = () => {
       if (document.visibilityState === "visible") {
         supabase.rpc("mark_batch_read", { p_batch_id: batchId });
+        // Optimistically zero the unread count so hub shows 0 immediately on back-nav
+        const ic = authUser?.instituteCode ?? "";
+        if (ic) {
+          queryClient.setQueryData<Record<string, number>>(
+            ["batch-unread-counts", currentUserId, ic],
+            (prev) => prev ? { ...prev, [batchId]: 0 } : prev
+          );
+        }
       }
     };
     markRead();
     document.addEventListener("visibilitychange", markRead);
     return () => document.removeEventListener("visibilitychange", markRead);
-  }, [batchId, currentUserId]);
+  }, [batchId, currentUserId, authUser?.instituteCode, queryClient]);
 
   // Attendance
   const [students, setStudents] = useState<Student[]>([]);

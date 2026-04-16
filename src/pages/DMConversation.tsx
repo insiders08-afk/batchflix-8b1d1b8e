@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useParams, useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -18,7 +19,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useDirectMessages } from "@/hooks/useDirectMessages";
-import type { DirectMessage } from "@/types/chat";
+import type { DirectMessage, DirectConversation } from "@/types/chat";
 import { useToast } from "@/hooks/use-toast";
 import { formatChatDate, getMessagePreview, roleLabel } from "@/lib/chatUtils";
 import { useAuth } from "@/contexts/AuthContext";
@@ -42,6 +43,7 @@ export default function DMConversation() {
   const navigate = useNavigate();
   const { toast } = useToast();
   const { authUser } = useAuth();
+  const queryClient = useQueryClient();
 
   const currentUserId = authUser?.userId ?? "";
   const currentUserName = authUser?.userName ?? "";
@@ -120,23 +122,38 @@ export default function DMConversation() {
     instituteCode,
   });
 
+  // Optimistically zero unread count in the DM list cache when marking as read
+  const markAsReadAndClearBadge = useCallback(() => {
+    markAsRead();
+    if (!conversationId) return;
+    const dmListKey = ["dm-list", currentUserId, currentUserRole, instituteCode];
+    queryClient.setQueryData<DirectConversation[]>(dmListKey, (prev) => {
+      if (!prev) return prev;
+      return prev.map((c) => {
+        if (c.id !== conversationId) return c;
+        if (c.admin_id === currentUserId) return { ...c, admin_unread_count: 0 };
+        return { ...c, other_user_unread_count: 0 };
+      });
+    });
+  }, [markAsRead, conversationId, currentUserId, currentUserRole, instituteCode, queryClient]);
+
   // CRIT-01 fix: Only markAsRead when visible + initial scroll done
   useEffect(() => {
     if (!msgsLoading && messages.length > 0 && initialScrollDone.current && document.visibilityState === "visible") {
-      markAsRead();
+      markAsReadAndClearBadge();
     }
-  }, [msgsLoading, messages.length, markAsRead]);
+  }, [msgsLoading, messages.length, markAsReadAndClearBadge]);
 
   // CRIT-01: Also mark as read when user returns to tab
   useEffect(() => {
     const handler = () => {
       if (document.visibilityState === "visible" && messages.length > 0 && initialScrollDone.current) {
-        markAsRead();
+        markAsReadAndClearBadge();
       }
     };
     document.addEventListener("visibilitychange", handler);
     return () => document.removeEventListener("visibilitychange", handler);
-  }, [messages.length, markAsRead]);
+  }, [messages.length, markAsReadAndClearBadge]);
 
   // ── Scroll management (aligned with BatchWorkspace) ──────────────────
   // MED-01 fix: simplified scrollToBottom
