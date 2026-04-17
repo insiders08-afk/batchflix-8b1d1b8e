@@ -9,25 +9,22 @@ type Loader = () => Promise<unknown>;
 
 const ROUTES_BY_ROLE: Record<string, Loader[]> = {
   admin: [
-    () => import("@/pages/AdminDashboard"),
-    () => import("@/pages/AdminChatHub"),
-    () => import("@/pages/BatchWorkspace"),
-    () => import("@/pages/DMConversation"),
+    () => import("@/pages/AdminBatches"),
+    () => import("@/pages/AdminStudents"),
+    () => import("@/pages/AdminFees"),
   ],
   teacher: [
-    () => import("@/pages/TeacherDashboard"),
-    () => import("@/pages/TeacherChatHub"),
-    () => import("@/pages/BatchWorkspace"),
-    () => import("@/pages/DMConversation"),
+    () => import("@/pages/TeacherHomework"),
+    () => import("@/pages/TeacherTests"),
   ],
   student: [
-    () => import("@/pages/StudentDashboard"),
-    () => import("@/pages/StudentChatHub"),
-    () => import("@/pages/BatchWorkspace"),
-    () => import("@/pages/DMConversation"),
+    () => import("@/pages/StudentHomework"),
+    () => import("@/pages/StudentTests"),
+    () => import("@/pages/StudentFees"),
   ],
   parent: [
     () => import("@/pages/ParentDashboard"),
+    () => import("@/pages/ParentFees"),
   ],
 };
 

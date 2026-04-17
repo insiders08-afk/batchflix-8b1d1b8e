@@ -263,10 +263,27 @@ export default function Index() {
     try {
       const cached = readCachedAuth();
       const lastRoute = localStorage.getItem(LAST_ROUTE_KEY);
-      if (cached?.userId && cached?.status === "approved" && isProtectedRoute(lastRoute) && (rememberMe || sessionOnly || !isOnline)) {
+      if (
+        cached?.userId &&
+        (cached?.status === "approved" || cached?.status === "active") &&
+        isProtectedRoute(lastRoute) &&
+        (rememberMe || sessionOnly || !isOnline)
+      ) {
         navigate(lastRoute, { replace: true });
         setAuthChecking(false);
         return;
+      }
+      if (
+        cached?.userId &&
+        (cached?.status === "approved" || cached?.status === "active") &&
+        (rememberMe || sessionOnly || !isOnline)
+      ) {
+        const fallbackPath = roleToPath[cached.userRole] ?? null;
+        if (fallbackPath) {
+          navigate(fallbackPath, { replace: true });
+          setAuthChecking(false);
+          return;
+        }
       }
     } catch { /* fall through to full check */ }
 
