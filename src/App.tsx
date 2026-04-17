@@ -2,11 +2,12 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
-import { lazy, Suspense } from "react";
+import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
+import { lazy, Suspense, useEffect } from "react";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { AuthProvider } from "@/contexts/AuthContext";
+import { pickSkeletonForPath } from "@/components/skeletons/RouteSkeletons";
 
 // Critical landing page — loaded eagerly
 import Index from "./pages/Index";
@@ -71,30 +72,43 @@ const queryClient = new QueryClient({
   },
 });
 
-const App = () => (
-  <ErrorBoundary>
-    <ThemeProvider attribute="class" defaultTheme="light" enableSystem={false} storageKey="batchhub-theme">
-    <AuthProvider>
-    <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <Toaster />
-        <Sonner />
-        <BrowserRouter>
-          <Suspense
-            fallback={
-              <div className="flex items-center justify-center min-h-screen">
-                <div className="w-7 h-7 border-3 border-primary border-t-transparent rounded-full animate-spin" />
-              </div>
-            }
-          >
-            <Routes>
-              <Route path="/" element={<Index />} />
-              <Route path="/role-select" element={<RoleSelection />} />
-              <Route path="/reset-password" element={<ResetPassword />} />
-              {/* Demo routes — pure fake data, no DB */}
-              <Route path="/demo/admin" element={<AdminDemo />} />
-              {/* Admin */}
-              <Route path="/admin" element={<AdminDashboard />} />
+/**
+ * Tracks every route change and stores the last visited dashboard route in
+ * localStorage so returning users can be redirected straight to it from `/`.
+ */
+function RouteTracker() {
+  const location = useLocation();
+  useEffect(() => {
+    const p = location.pathname;
+    // Only remember in-app dashboard/chat routes — not landing/auth/reset.
+    const isAppRoute =
+      p.startsWith("/admin") ||
+      p.startsWith("/teacher") ||
+      p.startsWith("/student") ||
+      p.startsWith("/parent") ||
+      p.startsWith("/owner") ||
+      p.startsWith("/superadmin") ||
+      p.startsWith("/batch/") ||
+      p.startsWith("/dm/");
+    if (isAppRoute) {
+      try { localStorage.setItem("bh_last_route", p); } catch { /* quota */ }
+    }
+  }, [location.pathname]);
+  return null;
+}
+
+function RoutedSuspense() {
+  const location = useLocation();
+  return (
+    <Suspense fallback={pickSkeletonForPath(location.pathname)}>
+      <Routes>
+        <Route path="/" element={<Index />} />
+        <Route path="/role-select" element={<RoleSelection />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
+        {/* Demo routes — pure fake data, no DB */}
+        <Route path="/demo/admin" element={<AdminDemo />} />
+        {/* Admin */}
+        <Route path="/admin" element={<AdminDashboard />} />
               <Route path="/admin/batches" element={<AdminBatches />} />
               <Route path="/admin/students" element={<AdminStudents />} />
               <Route path="/admin/attendance" element={<AdminAttendance />} />
