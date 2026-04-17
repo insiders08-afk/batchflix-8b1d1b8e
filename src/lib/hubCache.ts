@@ -7,9 +7,16 @@ interface CacheEntry<T> {
 }
 
 export function saveHubCache<T>(key: string, data: T) {
-  try {
-    localStorage.setItem(PREFIX + key, JSON.stringify({ data, ts: Date.now() }));
-  } catch { /* quota exceeded */ }
+  const write = () => {
+    try {
+      localStorage.setItem(PREFIX + key, JSON.stringify({ data, ts: Date.now() }));
+    } catch { /* quota exceeded */ }
+  };
+  if (typeof requestIdleCallback !== "undefined") {
+    requestIdleCallback(write, { timeout: 1000 });
+  } else {
+    setTimeout(write, 0);
+  }
 }
 
 export function loadHubCache<T>(key: string): T | null {
