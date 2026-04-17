@@ -264,12 +264,8 @@ export default function Index() {
       const cached = readCachedAuth();
       const lastRoute = localStorage.getItem(LAST_ROUTE_KEY);
       if (cached?.userId && cached?.status === "approved" && isProtectedRoute(lastRoute) && (rememberMe || sessionOnly || !isOnline)) {
-        if (!isOnline) {
-          navigate(lastRoute, { replace: true });
-          setAuthChecking(false);
-          return;
-        }
         navigate(lastRoute, { replace: true });
+        setAuthChecking(false);
         return;
       }
     } catch { /* fall through to full check */ }
