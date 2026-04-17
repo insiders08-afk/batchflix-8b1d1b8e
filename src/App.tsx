@@ -152,11 +152,25 @@ function RoutedSuspense() {
               {/* Shared DM conversation screen */}
               <Route path="/dm/:conversationId" element={<DMConversation />} />
               {/* Parent */}
-              <Route path="/parent" element={<ParentDashboard />} />
-              <Route path="/parent/fees" element={<ParentFees />} />
-              <Route path="*" element={<NotFound />} />
-            </Routes>
-          </Suspense>
+        <Route path="/parent" element={<ParentDashboard />} />
+        <Route path="/parent/fees" element={<ParentFees />} />
+        <Route path="*" element={<NotFound />} />
+      </Routes>
+    </Suspense>
+  );
+}
+
+const App = () => (
+  <ErrorBoundary>
+    <ThemeProvider attribute="class" defaultTheme="light" enableSystem={false} storageKey="batchhub-theme">
+    <AuthProvider>
+    <QueryClientProvider client={queryClient}>
+      <TooltipProvider>
+        <Toaster />
+        <Sonner />
+        <BrowserRouter>
+          <RouteTracker />
+          <RoutedSuspense />
         </BrowserRouter>
       </TooltipProvider>
     </QueryClientProvider>
