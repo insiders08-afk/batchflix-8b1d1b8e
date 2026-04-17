@@ -139,6 +139,16 @@ export default function TeacherDashboard() {
     fetchData();
   }, [fetchData]);
 
+  // Persist to cache for offline cold-start render
+  useEffect(() => {
+    if (loading) return;
+    try {
+      localStorage.setItem(DASH_CACHE_KEY, JSON.stringify({
+        userName, instituteName, batches, totalStudents, cachedAt: Date.now(),
+      } satisfies CachedTeacherDash));
+    } catch { /* ignore */ }
+  }, [loading, userName, instituteName, batches, totalStudents]);
+
   // LIMIT-03 fix: compute actual classes scheduled for today
   const JS_DAY_ABBREVS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   const classesToday = useMemo(() => {
