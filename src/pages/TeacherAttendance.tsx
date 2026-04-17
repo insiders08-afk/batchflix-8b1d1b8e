@@ -18,6 +18,23 @@ import AttendanceAnalyticsModal from "@/components/attendance/AttendanceAnalytic
 import AttendanceCalendarView from "@/components/attendance/AttendanceCalendarView";
 import { isAttendanceEditable, formatTimingDisplay } from "@/lib/batchTiming";
 
+const ATT_CACHE_PREFIX = "bh_attendance_today_";
+type CachedAtt = {
+  date: string;
+  students: StudentProfile[];
+  attendance: Record<string, "present" | "absent">;
+  batchHistory: AttendanceHistoryItem[];
+  cachedAt: number;
+};
+function readAttCache(batchId: string, today: string): CachedAtt | null {
+  try {
+    const raw = localStorage.getItem(ATT_CACHE_PREFIX + batchId);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as CachedAtt;
+    return parsed.date === today ? parsed : null;
+  } catch { return null; }
+}
+
 interface Batch {
   id: string;
   name: string;
@@ -128,6 +145,18 @@ export default function TeacherAttendance() {
 
   const loadBatchData = useCallback(async (batchId: string) => {
     if (!batchId) return;
+    // Hydrate immediately from today's cache so offline shows real grid
+    const cachedAtt = readAttCache(batchId, today);
+    if (cachedAtt) {
+      setStudents(cachedAtt.students);
+      setAttendance(cachedAtt.attendance);
+      setBatchHistory(cachedAtt.batchHistory);
+      setLoadingStudents(false);
+    }
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      setLoadingStudents(false);
+      return;
+    }
     setLoadingStudents(true);
     try {
       const { data: enrollments } = await supabase.from("students_batches").select("student_id").eq("batch_id", batchId);
@@ -164,6 +193,16 @@ export default function TeacherAttendance() {
         .sort((a, b) => b.date.localeCompare(a.date)).slice(0, 10);
 
       setBatchHistory(histItems);
+
+      try {
+        localStorage.setItem(ATT_CACHE_PREFIX + batchId, JSON.stringify({
+          date: today,
+          students: profiles,
+          attendance: attMap,
+          batchHistory: histItems,
+          cachedAt: Date.now(),
+        } satisfies CachedAtt));
+      } catch { /* ignore */ }
     } finally {
       setLoadingStudents(false);
     }

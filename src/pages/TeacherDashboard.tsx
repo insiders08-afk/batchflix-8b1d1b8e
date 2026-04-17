@@ -22,6 +22,25 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 
+const DASH_CACHE_KEY = "bh_dash_stats_teacher";
+
+type CachedTeacherDash = {
+  userName: string;
+  instituteName: string;
+  batches: Batch[];
+  totalStudents: number;
+  cachedAt: number;
+};
+
+function readTeacherCache(): CachedTeacherDash | null {
+  try {
+    const raw = localStorage.getItem(DASH_CACHE_KEY);
+    return raw ? (JSON.parse(raw) as CachedTeacherDash) : null;
+  } catch {
+    return null;
+  }
+}
+
 interface Batch {
   id: string;
   name: string;
@@ -40,15 +59,20 @@ interface BatchRequest {
 
 export default function TeacherDashboard() {
   const { toast } = useToast();
-  const [userName, setUserName] = useState("Teacher");
-  const [instituteName, setInstituteName] = useState("");
-  const [batches, setBatches] = useState<Batch[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [totalStudents, setTotalStudents] = useState(0);
+  const cached = typeof window !== "undefined" ? readTeacherCache() : null;
+  const [userName, setUserName] = useState(cached?.userName ?? "Teacher");
+  const [instituteName, setInstituteName] = useState(cached?.instituteName ?? "");
+  const [batches, setBatches] = useState<Batch[]>(cached?.batches ?? []);
+  const [loading, setLoading] = useState(!cached);
+  const [totalStudents, setTotalStudents] = useState(cached?.totalStudents ?? 0);
   const [batchRequests, setBatchRequests] = useState<BatchRequest[]>([]);
   const [respondingId, setRespondingId] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      setLoading(false);
+      return;
+    }
     const {
       data: { user },
     } = await supabase.auth.getUser();
@@ -114,6 +138,16 @@ export default function TeacherDashboard() {
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  // Persist to cache for offline cold-start render
+  useEffect(() => {
+    if (loading) return;
+    try {
+      localStorage.setItem(DASH_CACHE_KEY, JSON.stringify({
+        userName, instituteName, batches, totalStudents, cachedAt: Date.now(),
+      } satisfies CachedTeacherDash));
+    } catch { /* ignore */ }
+  }, [loading, userName, instituteName, batches, totalStudents]);
 
   // LIMIT-03 fix: compute actual classes scheduled for today
   const JS_DAY_ABBREVS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];

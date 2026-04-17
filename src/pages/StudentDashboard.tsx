@@ -11,6 +11,26 @@ import {
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 
+const DASH_CACHE_KEY = "bh_dash_stats_student";
+
+type CachedStudentDash = {
+  userName: string;
+  instituteName: string;
+  batches: Batch[];
+  recentTests: TestScore[];
+  attendanceRate: number | null;
+  cachedAt: number;
+};
+
+function readStudentCache(): CachedStudentDash | null {
+  try {
+    const raw = localStorage.getItem(DASH_CACHE_KEY);
+    return raw ? (JSON.parse(raw) as CachedStudentDash) : null;
+  } catch {
+    return null;
+  }
+}
+
 interface Batch {
   id: string;
   name: string;
@@ -29,16 +49,21 @@ interface TestScore {
 }
 
 export default function StudentDashboard() {
-  const [userName, setUserName] = useState("Student");
-  const [instituteName, setInstituteName] = useState("");
-  const [batches, setBatches] = useState<Batch[]>([]);
-  const [recentTests, setRecentTests] = useState<TestScore[]>([]);
-  const [attendanceRate, setAttendanceRate] = useState<number | null>(null);
-  const [loading, setLoading] = useState(true);
+  const cached = typeof window !== "undefined" ? readStudentCache() : null;
+  const [userName, setUserName] = useState(cached?.userName ?? "Student");
+  const [instituteName, setInstituteName] = useState(cached?.instituteName ?? "");
+  const [batches, setBatches] = useState<Batch[]>(cached?.batches ?? []);
+  const [recentTests, setRecentTests] = useState<TestScore[]>(cached?.recentTests ?? []);
+  const [attendanceRate, setAttendanceRate] = useState<number | null>(cached?.attendanceRate ?? null);
+  const [loading, setLoading] = useState(!cached);
   const [userId, setUserId] = useState<string>("");
 
   useEffect(() => {
     const fetchData = async () => {
+      if (typeof navigator !== "undefined" && !navigator.onLine) {
+        setLoading(false);
+        return;
+      }
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { setLoading(false); return; }
       setUserId(user.id);
@@ -114,6 +139,16 @@ export default function StudentDashboard() {
     };
     fetchData();
   }, []);
+
+  // Persist dashboard snapshot for offline cold-start
+  useEffect(() => {
+    if (loading) return;
+    try {
+      localStorage.setItem(DASH_CACHE_KEY, JSON.stringify({
+        userName, instituteName, batches, recentTests, attendanceRate, cachedAt: Date.now(),
+      } satisfies CachedStudentDash));
+    } catch { /* ignore */ }
+  }, [loading, userName, instituteName, batches, recentTests, attendanceRate]);
 
   return (
     <DashboardLayout title="My Dashboard" role="student">

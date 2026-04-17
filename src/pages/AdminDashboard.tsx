@@ -11,18 +11,42 @@ import {
 import { Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 
+const DASH_CACHE_KEY = "bh_dash_stats_admin";
+
+type CachedDash = {
+  stats: { totalStudents: number; activeBatches: number; todayAttendance: number; unpaidFees: number };
+  batches: { id: string; name: string; teacher_name: string | null; studentCount: number }[];
+  announcements: { id: string; title: string; batch_id: string | null; created_at: string; posted_by_name: string | null }[];
+  cachedAt: number;
+};
+
+function readCache(): CachedDash | null {
+  try {
+    const raw = localStorage.getItem(DASH_CACHE_KEY);
+    return raw ? (JSON.parse(raw) as CachedDash) : null;
+  } catch {
+    return null;
+  }
+}
+
 export default function AdminDashboard() {
-  const [stats, setStats] = useState({
+  // Hydrate from cache first so offline / cold-start renders real numbers instantly.
+  const cached = typeof window !== "undefined" ? readCache() : null;
+  const [stats, setStats] = useState(cached?.stats ?? {
     totalStudents: 0,
     activeBatches: 0,
     todayAttendance: 0,
     unpaidFees: 0,
   });
-  const [batches, setBatches] = useState<{ id: string; name: string; teacher_name: string | null; studentCount: number }[]>([]);
-  const [announcements, setAnnouncements] = useState<{ id: string; title: string; batch_id: string | null; created_at: string; posted_by_name: string | null }[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [batches, setBatches] = useState<{ id: string; name: string; teacher_name: string | null; studentCount: number }[]>(cached?.batches ?? []);
+  const [announcements, setAnnouncements] = useState<{ id: string; title: string; batch_id: string | null; created_at: string; posted_by_name: string | null }[]>(cached?.announcements ?? []);
+  const [loading, setLoading] = useState(!cached);
 
   const fetchData = useCallback(async () => {
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      setLoading(false);
+      return;
+    }
     const code = await supabase.rpc("get_my_institute_code");
     const instituteCode = code.data;
     if (!instituteCode) { setLoading(false); return; }
@@ -68,6 +92,15 @@ export default function AdminDashboard() {
     setBatches(enrichedBatches);
     setAnnouncements(announcementsRes.data || []);
     setLoading(false);
+
+    try {
+      localStorage.setItem(DASH_CACHE_KEY, JSON.stringify({
+        stats: { totalStudents, activeBatches, todayAttendance, unpaidFees },
+        batches: enrichedBatches,
+        announcements: announcementsRes.data || [],
+        cachedAt: Date.now(),
+      } satisfies CachedDash));
+    } catch { /* quota — ignore */ }
   }, []);
 
   useEffect(() => {

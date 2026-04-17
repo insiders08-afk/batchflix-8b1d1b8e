@@ -31,12 +31,11 @@ const ROUTES_BY_ROLE: Record<string, Loader[]> = {
   ],
 };
 
-// Logged-out users land here — keep auth + role-select warm
+// Logged-out visitors: only warm the role picker (~8KB).
+// Auth pages are lazy-loaded on click — most visitors never reach them,
+// and the SW precache covers offline session expiry as a safety net.
 const LOGGED_OUT_ROUTES: Loader[] = [
   () => import("@/pages/RoleSelection"),
-  () => import("@/pages/auth/AdminAuth"),
-  () => import("@/pages/auth/TeacherAuth"),
-  () => import("@/pages/auth/StudentAuth"),
 ];
 
 let prefetched = false;
