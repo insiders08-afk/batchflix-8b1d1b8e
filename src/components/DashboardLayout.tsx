@@ -155,13 +155,14 @@ export default function DashboardLayout({ children, title, role = "admin" }: Das
     if (authLoading) return;
     const isOffline = typeof navigator !== "undefined" && !navigator.onLine;
     const lastRoute = typeof window !== "undefined" ? localStorage.getItem(LAST_ROUTE_KEY) : null;
+    const hasMatchingCachedRole = authUser?.userRole === role || authUser?.userRoles.includes(role);
     if (!authUser) {
       if (isOffline) return;
       navigate(roleAuthPaths[role], { replace: true });
       return;
     }
     // Validate role using cached roles from AuthContext
-    if (!authUser.userRoles.includes(role)) {
+    if (!hasMatchingCachedRole) {
       if (isOffline && lastRoute?.startsWith(`/${role}`)) return;
       navigate("/role-select", { replace: true });
     }

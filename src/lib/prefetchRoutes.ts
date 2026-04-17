@@ -7,26 +7,32 @@
  */
 type Loader = () => Promise<unknown>;
 
+const CORE_OFFLINE_ROUTES: Loader[] = [
+  () => import("@/pages/AdminDashboard"),
+  () => import("@/pages/AdminAttendance"),
+  () => import("@/pages/AdminChatHub"),
+  () => import("@/pages/TeacherDashboard"),
+  () => import("@/pages/TeacherAttendance"),
+  () => import("@/pages/TeacherChatHub"),
+  () => import("@/pages/StudentDashboard"),
+  () => import("@/pages/StudentAttendance"),
+  () => import("@/pages/StudentChatHub"),
+  () => import("@/pages/BatchWorkspace"),
+  () => import("@/pages/DMConversation"),
+];
+
 const ROUTES_BY_ROLE: Record<string, Loader[]> = {
   admin: [
-    () => import("@/pages/AdminDashboard"),
-    () => import("@/pages/AdminChatHub"),
-    () => import("@/pages/BatchWorkspace"),
-    () => import("@/pages/DMConversation"),
+    ...CORE_OFFLINE_ROUTES,
   ],
   teacher: [
-    () => import("@/pages/TeacherDashboard"),
-    () => import("@/pages/TeacherChatHub"),
-    () => import("@/pages/BatchWorkspace"),
-    () => import("@/pages/DMConversation"),
+    ...CORE_OFFLINE_ROUTES,
   ],
   student: [
-    () => import("@/pages/StudentDashboard"),
-    () => import("@/pages/StudentChatHub"),
-    () => import("@/pages/BatchWorkspace"),
-    () => import("@/pages/DMConversation"),
+    ...CORE_OFFLINE_ROUTES,
   ],
   parent: [
+    ...CORE_OFFLINE_ROUTES,
     () => import("@/pages/ParentDashboard"),
   ],
 };
