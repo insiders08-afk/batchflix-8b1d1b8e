@@ -12,16 +12,25 @@ import { pickSkeletonForPath } from "@/components/skeletons/RouteSkeletons";
 // Critical landing page — loaded eagerly
 import Index from "./pages/Index";
 import NotFound from "./pages/NotFound";
+import AdminDashboard from "./pages/AdminDashboard";
+import AdminAttendance from "./pages/AdminAttendance";
+import AdminChatHub from "./pages/AdminChatHub";
+import BatchWorkspace from "./pages/BatchWorkspace";
+import TeacherDashboard from "./pages/TeacherDashboard";
+import TeacherAttendance from "./pages/TeacherAttendance";
+import TeacherChatHub from "./pages/TeacherChatHub";
+import StudentDashboard from "./pages/StudentDashboard";
+import StudentAttendance from "./pages/StudentAttendance";
+import StudentChatHub from "./pages/StudentChatHub";
+import DMConversation from "./pages/DMConversation";
 
 // All other pages — lazy loaded to reduce initial JS bundle
 const AdminDemo = lazy(() => import("./pages/demo/AdminDemo"));
 const StudentBatchApply = lazy(() => import("./pages/StudentBatchApply"));
 
 const RoleSelection = lazy(() => import("./pages/RoleSelection"));
-const AdminDashboard = lazy(() => import("./pages/AdminDashboard"));
 const AdminBatches = lazy(() => import("./pages/AdminBatches"));
 const AdminStudents = lazy(() => import("./pages/AdminStudents"));
-const AdminAttendance = lazy(() => import("./pages/AdminAttendance"));
 const AdminFees = lazy(() => import("./pages/AdminFees"));
 const AdminAnnouncements = lazy(() => import("./pages/AdminAnnouncements"));
 const AdminTests = lazy(() => import("./pages/AdminTests"));
@@ -29,17 +38,12 @@ const AdminSettings = lazy(() => import("./pages/AdminSettings"));
 const AdminApprovals = lazy(() => import("./pages/AdminApprovals"));
 const AdminBatchApplications = lazy(() => import("./pages/AdminBatchApplications"));
 const AdminTeam = lazy(() => import("./pages/AdminTeam"));
-const BatchWorkspace = lazy(() => import("./pages/BatchWorkspace"));
-const TeacherDashboard = lazy(() => import("./pages/TeacherDashboard"));
 const TeacherSettings = lazy(() => import("./pages/TeacherSettings"));
 const StudentSettings = lazy(() => import("./pages/StudentSettings"));
-const TeacherAttendance = lazy(() => import("./pages/TeacherAttendance"));
 const TeacherAnnouncements = lazy(() => import("./pages/TeacherAnnouncements"));
 const TeacherTests = lazy(() => import("./pages/TeacherTests"));
 const TeacherHomework = lazy(() => import("./pages/TeacherHomework"));
-const StudentDashboard = lazy(() => import("./pages/StudentDashboard"));
 const StudentFees = lazy(() => import("./pages/StudentFees"));
-const StudentAttendance = lazy(() => import("./pages/StudentAttendance"));
 const StudentTests = lazy(() => import("./pages/StudentTests"));
 const StudentHomework = lazy(() => import("./pages/StudentHomework"));
 const StudentAnnouncements = lazy(() => import("./pages/StudentAnnouncements"));
@@ -56,10 +60,6 @@ const OwnerDashboard = lazy(() => import("./pages/OwnerDashboard"));
 const CityPartnerApply = lazy(() => import("./pages/CityPartnerApply"));
 const Install = lazy(() => import("./pages/Install"));
 const ResetPassword = lazy(() => import("./pages/ResetPassword"));
-const AdminChatHub = lazy(() => import("./pages/AdminChatHub"));
-const TeacherChatHub = lazy(() => import("./pages/TeacherChatHub"));
-const StudentChatHub = lazy(() => import("./pages/StudentChatHub"));
-const DMConversation = lazy(() => import("./pages/DMConversation"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
