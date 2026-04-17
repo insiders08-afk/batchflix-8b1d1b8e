@@ -20,6 +20,8 @@ import OfflineBanner from "@/components/OfflineBanner";
 import { useDMList } from "@/hooks/useDMList";
 import { useAuth } from "@/contexts/AuthContext";
 
+const LAST_ROUTE_KEY = "bh_last_route";
+
 type Role = "admin" | "teacher" | "student" | "parent";
 
 const menusByRole: Record<Role, { icon: React.ElementType; label: string; path: string }[]> = {
@@ -151,12 +153,16 @@ export default function DashboardLayout({ children, title, role = "admin" }: Das
   // Auth guard — lightweight check using cached context
   useEffect(() => {
     if (authLoading) return;
+    const isOffline = typeof navigator !== "undefined" && !navigator.onLine;
+    const lastRoute = typeof window !== "undefined" ? localStorage.getItem(LAST_ROUTE_KEY) : null;
     if (!authUser) {
+      if (isOffline) return;
       navigate(roleAuthPaths[role], { replace: true });
       return;
     }
     // Validate role using cached roles from AuthContext
     if (!authUser.userRoles.includes(role)) {
+      if (isOffline && lastRoute?.startsWith(`/${role}`)) return;
       navigate("/role-select", { replace: true });
     }
   }, [authUser, authLoading, navigate, role]);
@@ -164,6 +170,7 @@ export default function DashboardLayout({ children, title, role = "admin" }: Das
   // Listen for sign-out events to redirect immediately
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (typeof navigator !== "undefined" && !navigator.onLine) return;
       if (event === "SIGNED_OUT" || (!session && event !== "INITIAL_SESSION")) {
         navigate(roleAuthPaths[role], { replace: true });
       }
