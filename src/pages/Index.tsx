@@ -228,6 +228,22 @@ export default function Index() {
       return;
     }
 
+    // Fast-path: if we have a cached auth + last in-app route, redirect immediately.
+    // Supabase auth verification still runs below, but the user sees their app instantly.
+    try {
+      const cached = localStorage.getItem("bh_auth_cache");
+      const lastRoute = localStorage.getItem("bh_last_route");
+      const rememberMe = localStorage.getItem("batchhub_remember_me") === "true";
+      const sessionOnly = sessionStorage.getItem("batchhub_session_only") === "true";
+      if (cached && lastRoute && (rememberMe || sessionOnly)) {
+        const parsed = JSON.parse(cached);
+        if (parsed?.userId && parsed?.status === "approved") {
+          navigate(lastRoute, { replace: true });
+          return;
+        }
+      }
+    } catch { /* fall through to full check */ }
+
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (session?.user) {
         const rememberMe = localStorage.getItem("batchhub_remember_me") === "true";
