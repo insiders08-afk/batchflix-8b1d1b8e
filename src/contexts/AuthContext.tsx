@@ -58,10 +58,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const loadUser = async () => {
     const cachedUser = readCachedAuthUser();
-    const isOnline = typeof navigator === "undefined" ? true : navigator.onLine;
     const { data: { session } } = await supabase.auth.getSession();
     if (!session?.user) {
-      if (!isOnline && cachedUser) {
+      // Local-first bootstrap: on cold starts Supabase session restoration can lag
+      // behind the first render, especially in PWAs/offline launches. If we already
+      // have a cached identity, keep it and let the online verification effect clear
+      // it later only when we positively know the session is gone.
+      if (cachedUser) {
         setAuthUser(cachedUser);
         setAuthLoading(false);
         return;
@@ -167,13 +170,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     loadUser();
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === "SIGNED_OUT") {
         setAuthUser(null);
         setAuthLoading(false);
         clearCachedAuthUser();
         clearHubCache();
         clearMessagesCache();
+      } else if (event === "INITIAL_SESSION" && session?.user) {
+        loadUser();
       } else if (event === "SIGNED_IN") {
         setAuthLoading(true);
         loadUser();
