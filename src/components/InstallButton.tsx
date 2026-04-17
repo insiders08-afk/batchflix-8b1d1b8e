@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { forwardRef, useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Download } from "lucide-react";
@@ -7,7 +7,10 @@ import { Download } from "lucide-react";
  * Shows an "Install App" button only when the app is NOT already installed as a PWA.
  * Detects standalone mode via display-mode media query.
  */
-export default function InstallButton({ className = "" }: { className?: string }) {
+const InstallButton = forwardRef<HTMLAnchorElement, { className?: string }>(function InstallButton(
+  { className = "" },
+  ref
+) {
   const [isInstalled, setIsInstalled] = useState(true); // default hidden until check
 
   useEffect(() => {
@@ -22,7 +25,7 @@ export default function InstallButton({ className = "" }: { className?: string }
   if (isInstalled) return null;
 
   return (
-    <Link to="/install">
+    <Link to="/install" ref={ref}>
       <Button
         variant="outline"
         size="sm"
@@ -34,4 +37,6 @@ export default function InstallButton({ className = "" }: { className?: string }
       </Button>
     </Link>
   );
-}
+});
+
+export default InstallButton;
