@@ -26,6 +26,7 @@ const AdminAnnouncements = lazy(() => import("./pages/AdminAnnouncements"));
 const AdminTests = lazy(() => import("./pages/AdminTests"));
 const AdminSettings = lazy(() => import("./pages/AdminSettings"));
 const AdminApprovals = lazy(() => import("./pages/AdminApprovals"));
+const AdminBatchApplications = lazy(() => import("./pages/AdminBatchApplications"));
 const AdminTeam = lazy(() => import("./pages/AdminTeam"));
 const BatchWorkspace = lazy(() => import("./pages/BatchWorkspace"));
 const TeacherDashboard = lazy(() => import("./pages/TeacherDashboard"));
@@ -103,7 +104,7 @@ const App = () => (
               <Route path="/admin/settings" element={<AdminSettings />} />
               <Route path="/admin/approvals" element={<AdminApprovals />} />
               <Route path="/admin/team" element={<AdminTeam />} />
-              <Route path="/admin/batch-applications" element={<AdminApprovals />} />
+              <Route path="/admin/batch-applications" element={<AdminBatchApplications />} />
               <Route path="/auth/admin" element={<AdminAuth />} />
               <Route path="/auth/superadmin" element={<SuperAdminAuth />} />
               <Route path="/superadmin" element={<SuperAdminDashboard />} />

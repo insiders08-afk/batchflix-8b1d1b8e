@@ -67,6 +67,7 @@ export default defineConfig(({ mode }) => ({
             src: "/icons/pwa-192x192.png",
             sizes: "192x192",
             type: "image/png",
+            purpose: "any maskable",
           },
           {
             src: "/icons/pwa-512x512.png",
