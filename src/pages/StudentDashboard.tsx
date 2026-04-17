@@ -140,6 +140,16 @@ export default function StudentDashboard() {
     fetchData();
   }, []);
 
+  // Persist dashboard snapshot for offline cold-start
+  useEffect(() => {
+    if (loading) return;
+    try {
+      localStorage.setItem(DASH_CACHE_KEY, JSON.stringify({
+        userName, instituteName, batches, recentTests, attendanceRate, cachedAt: Date.now(),
+      } satisfies CachedStudentDash));
+    } catch { /* ignore */ }
+  }, [loading, userName, instituteName, batches, recentTests, attendanceRate]);
+
   return (
     <DashboardLayout title="My Dashboard" role="student">
       <div className="space-y-5 w-full max-w-2xl">

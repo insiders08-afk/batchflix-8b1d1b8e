@@ -18,6 +18,23 @@ import AttendanceAnalyticsModal from "@/components/attendance/AttendanceAnalytic
 import AttendanceCalendarView from "@/components/attendance/AttendanceCalendarView";
 import { isAttendanceEditable, formatTimingDisplay } from "@/lib/batchTiming";
 
+const ATT_CACHE_PREFIX = "bh_attendance_today_";
+type CachedAtt = {
+  date: string;
+  students: StudentProfile[];
+  attendance: Record<string, "present" | "absent">;
+  batchHistory: AttendanceHistoryItem[];
+  cachedAt: number;
+};
+function readAttCache(batchId: string, today: string): CachedAtt | null {
+  try {
+    const raw = localStorage.getItem(ATT_CACHE_PREFIX + batchId);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as CachedAtt;
+    return parsed.date === today ? parsed : null;
+  } catch { return null; }
+}
+
 interface Batch {
   id: string;
   name: string;
