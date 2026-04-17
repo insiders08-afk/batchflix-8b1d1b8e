@@ -19,8 +19,29 @@ interface AuthContextType {
   refreshAuthUser: () => Promise<void>;
 }
 
-const CACHE_KEY = "bh_auth_user";
+const CACHE_KEY = "bh_auth_cache";
+const LEGACY_CACHE_KEY = "bh_auth_user";
 const INST_NAME_CACHE_PREFIX = "bh_inst_name_";
+
+function readCachedAuthUser(): AuthUser | null {
+  try {
+    const cached = localStorage.getItem(CACHE_KEY) ?? localStorage.getItem(LEGACY_CACHE_KEY);
+    return cached ? JSON.parse(cached) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeCachedAuthUser(user: AuthUser) {
+  const serialized = JSON.stringify(user);
+  localStorage.setItem(CACHE_KEY, serialized);
+  localStorage.setItem(LEGACY_CACHE_KEY, serialized);
+}
+
+function clearCachedAuthUser() {
+  localStorage.removeItem(CACHE_KEY);
+  localStorage.removeItem(LEGACY_CACHE_KEY);
+}
 
 const AuthContext = createContext<AuthContextType>({
   authUser: null,
@@ -30,79 +51,96 @@ const AuthContext = createContext<AuthContextType>({
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [authUser, setAuthUser] = useState<AuthUser | null>(() => {
-    try {
-      const cached = localStorage.getItem(CACHE_KEY);
-      return cached ? JSON.parse(cached) : null;
-    } catch {
-      return null;
-    }
+    return readCachedAuthUser();
   });
 
-  const [authLoading, setAuthLoading] = useState(!localStorage.getItem(CACHE_KEY));
+  const [authLoading, setAuthLoading] = useState(!readCachedAuthUser());
 
   const loadUser = async () => {
+    const cachedUser = readCachedAuthUser();
+    const isOnline = typeof navigator === "undefined" ? true : navigator.onLine;
     const { data: { session } } = await supabase.auth.getSession();
     if (!session?.user) {
+      if (!isOnline && cachedUser) {
+        setAuthUser(cachedUser);
+        setAuthLoading(false);
+        return;
+      }
       setAuthUser(null);
       setAuthLoading(false);
-      localStorage.removeItem(CACHE_KEY);
+      clearCachedAuthUser();
       return;
     }
 
-    // Parallel fetch: profile, roles, and institute
-    const [profileRes, rolesRes] = await Promise.all([
-      supabase
-        .from("profiles")
-        .select("full_name, role, institute_code, status")
-        .eq("user_id", session.user.id)
-        .maybeSingle(),
-      supabase
-        .from("user_roles")
-        .select("role")
-        .eq("user_id", session.user.id),
-    ]);
+    try {
+      // Parallel fetch: profile, roles, and institute
+      const [profileRes, rolesRes] = await Promise.all([
+        supabase
+          .from("profiles")
+          .select("full_name, role, institute_code, status")
+          .eq("user_id", session.user.id)
+          .maybeSingle(),
+        supabase
+          .from("user_roles")
+          .select("role")
+          .eq("user_id", session.user.id),
+      ]);
 
-    const profile = profileRes.data;
-    const userRoles = rolesRes.data?.map((r) => r.role) || [];
+      if (profileRes.error) throw profileRes.error;
+      if (rolesRes.error) throw rolesRes.error;
 
-    let instituteName = profile?.institute_code ?? "";
-    if (profile?.institute_code) {
-      // MED-03: Cache institute name to avoid repeat network round-trips
-      const cachedName = sessionStorage.getItem(`${INST_NAME_CACHE_PREFIX}${profile.institute_code}`);
-      if (cachedName) {
-        instituteName = cachedName;
-      } else {
-        const { data: inst } = await supabase
-          .from("institutes")
-          .select("institute_name, city")
-          .eq("institute_code", profile.institute_code)
-          .single();
-        if (inst) {
-          instituteName = `${inst.institute_name}${inst.city ? ", " + inst.city : ""}`;
-          sessionStorage.setItem(`${INST_NAME_CACHE_PREFIX}${profile.institute_code}`, instituteName);
+      const profile = profileRes.data;
+      const userRoles = rolesRes.data?.map((r) => r.role) || [];
+
+      let instituteName = profile?.institute_code ?? "";
+      if (profile?.institute_code) {
+        // MED-03: Cache institute name to avoid repeat network round-trips
+        const cachedName = sessionStorage.getItem(`${INST_NAME_CACHE_PREFIX}${profile.institute_code}`);
+        if (cachedName) {
+          instituteName = cachedName;
+        } else {
+          const { data: inst, error: instError } = await supabase
+            .from("institutes")
+            .select("institute_name, city")
+            .eq("institute_code", profile.institute_code)
+            .single();
+          if (instError) throw instError;
+          if (inst) {
+            instituteName = `${inst.institute_name}${inst.city ? ", " + inst.city : ""}`;
+            sessionStorage.setItem(`${INST_NAME_CACHE_PREFIX}${profile.institute_code}`, instituteName);
+          }
         }
       }
+
+      const name = profile?.full_name || session.user.email || "User";
+      const parts = name.split(" ");
+      const initials = parts.map((p: string) => p[0]).join("").toUpperCase().slice(0, 2);
+
+      const newUser: AuthUser = {
+        userId: session.user.id,
+        userName: name,
+        userRole: profile?.role ?? "student",
+        userRoles,
+        userInitials: initials,
+        instituteCode: profile?.institute_code ?? "",
+        instituteName,
+        // LOW-04: Default to "pending" instead of "active" for missing profiles
+        status: profile?.status ?? "pending",
+      };
+
+      setAuthUser(newUser);
+      setAuthLoading(false);
+      writeCachedAuthUser(newUser);
+    } catch {
+      if (cachedUser) {
+        setAuthUser(cachedUser);
+        setAuthLoading(false);
+        return;
+      }
+      setAuthUser(null);
+      setAuthLoading(false);
+      clearCachedAuthUser();
     }
-
-    const name = profile?.full_name || session.user.email || "User";
-    const parts = name.split(" ");
-    const initials = parts.map((p: string) => p[0]).join("").toUpperCase().slice(0, 2);
-
-    const newUser: AuthUser = {
-      userId: session.user.id,
-      userName: name,
-      userRole: profile?.role ?? "student",
-      userRoles,
-      userInitials: initials,
-      instituteCode: profile?.institute_code ?? "",
-      instituteName,
-      // LOW-04: Default to "pending" instead of "active" for missing profiles
-      status: profile?.status ?? "pending",
-    };
-
-    setAuthUser(newUser);
-    setAuthLoading(false);
-    localStorage.setItem(CACHE_KEY, JSON.stringify(newUser));
   };
 
   // Ghost-session guard: if the token can't refresh (e.g. network down for
@@ -112,10 +150,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const verifySession = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session && authUser) {
+        if (typeof navigator !== "undefined" && !navigator.onLine) return;
         // Token expired and couldn't refresh → clear ghost session
         setAuthUser(null);
         setAuthLoading(false);
-        localStorage.removeItem(CACHE_KEY);
+        clearCachedAuthUser();
         clearHubCache();
         clearMessagesCache();
       }
@@ -132,7 +171,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (event === "SIGNED_OUT") {
         setAuthUser(null);
         setAuthLoading(false);
-        localStorage.removeItem(CACHE_KEY);
+        clearCachedAuthUser();
         clearHubCache();
         clearMessagesCache();
       } else if (event === "SIGNED_IN") {
