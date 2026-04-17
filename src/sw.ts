@@ -50,6 +50,24 @@ registerRoute(
   })
 );
 
+// ─── Runtime caching: Supabase Storage media (cache-first, 30 days) ──────────
+// Caches avatars, chat attachments, homework files so they render offline.
+registerRoute(
+  ({ url }) =>
+    url.host.includes("supabase.co") &&
+    url.pathname.includes("/storage/v1/object/public/"),
+  new CacheFirst({
+    cacheName: "supabase-media-v1",
+    plugins: [
+      new ExpirationPlugin({
+        maxAgeSeconds: 30 * 24 * 60 * 60, // 30 days
+        maxEntries: 60,
+        purgeOnQuotaError: true,
+      }),
+    ],
+  })
+);
+
 // ─── Route: Supabase DM INSERT requests → background-sync queue ──────────────
 // Intercepts POST/PATCH requests to Supabase REST for direct_messages table.
 // Network-first: if online, fires normally. If offline, queued for later sync.
