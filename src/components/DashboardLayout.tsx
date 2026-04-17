@@ -16,6 +16,7 @@ import InstallButton from "@/components/InstallButton";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { usePushNotifications } from "@/hooks/use-push-notifications";
 import BottomNav from "@/components/BottomNav";
+import OfflineBanner from "@/components/OfflineBanner";
 import { useDMList } from "@/hooks/useDMList";
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -312,6 +313,7 @@ export default function DashboardLayout({ children, title, role = "admin" }: Das
 
       {/* Main content */}
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+        <OfflineBanner />
         {/* Top bar */}
         <header className="h-14 border-b border-border/50 bg-card flex items-center justify-between px-4 flex-shrink-0">
           <div className="flex items-center gap-3 min-w-0">

@@ -666,7 +666,7 @@ export default function DMConversation() {
       )}
 
       {/* ── Chat input ── */}
-      <div className="border-t border-border/50 p-3 bg-card flex gap-2 items-end">
+      <div className="border-t border-border/50 p-3 bg-card flex gap-2 items-end" style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}>
         <input
           ref={fileInputRef}
           type="file"

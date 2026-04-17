@@ -1,6 +1,6 @@
 /// <reference lib="webworker" />
-import { cleanupOutdatedCaches, precacheAndRoute } from "workbox-precaching";
-import { registerRoute } from "workbox-routing";
+import { cleanupOutdatedCaches, precacheAndRoute, createHandlerBoundToURL } from "workbox-precaching";
+import { registerRoute, setCatchHandler, NavigationRoute } from "workbox-routing";
 import { CacheFirst, StaleWhileRevalidate, NetworkOnly } from "workbox-strategies";
 import { ExpirationPlugin } from "workbox-expiration";
 import { BackgroundSyncPlugin } from "workbox-background-sync";
@@ -10,6 +10,14 @@ declare let self: ServiceWorkerGlobalScope;
 // Workbox precache manifest injected at build time — handles versioned /assets/* chunks
 precacheAndRoute(self.__WB_MANIFEST);
 cleanupOutdatedCaches();
+
+// ─── SPA navigation fallback: serve index.html from precache for all routes ──
+// Without this, deep-link refreshes while offline show the browser's offline page.
+registerRoute(
+  new NavigationRoute(createHandlerBoundToURL("/index.html"), {
+    denylist: [/^\/api\//, /\/_/, /\.[^\/]+$/], // skip API, internal, and asset paths
+  })
+);
 
 // ─── Runtime caching: JS/CSS assets (cache-first, 1 year) ────────────────────
 registerRoute(
@@ -45,6 +53,24 @@ registerRoute(
       new ExpirationPlugin({
         maxAgeSeconds: 365 * 24 * 60 * 60,
         maxEntries: 20,
+      }),
+    ],
+  })
+);
+
+// ─── Runtime caching: Supabase Storage media (cache-first, 30 days) ──────────
+// Caches avatars, chat attachments, homework files so they render offline.
+registerRoute(
+  ({ url }) =>
+    url.host.includes("supabase.co") &&
+    url.pathname.includes("/storage/v1/object/public/"),
+  new CacheFirst({
+    cacheName: "supabase-media-v1",
+    plugins: [
+      new ExpirationPlugin({
+        maxAgeSeconds: 30 * 24 * 60 * 60, // 30 days
+        maxEntries: 60,
+        purgeOnQuotaError: true,
       }),
     ],
   })
