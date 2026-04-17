@@ -145,6 +145,18 @@ export default function TeacherAttendance() {
 
   const loadBatchData = useCallback(async (batchId: string) => {
     if (!batchId) return;
+    // Hydrate immediately from today's cache so offline shows real grid
+    const cachedAtt = readAttCache(batchId, today);
+    if (cachedAtt) {
+      setStudents(cachedAtt.students);
+      setAttendance(cachedAtt.attendance);
+      setBatchHistory(cachedAtt.batchHistory);
+      setLoadingStudents(false);
+    }
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      setLoadingStudents(false);
+      return;
+    }
     setLoadingStudents(true);
     try {
       const { data: enrollments } = await supabase.from("students_batches").select("student_id").eq("batch_id", batchId);
@@ -181,6 +193,16 @@ export default function TeacherAttendance() {
         .sort((a, b) => b.date.localeCompare(a.date)).slice(0, 10);
 
       setBatchHistory(histItems);
+
+      try {
+        localStorage.setItem(ATT_CACHE_PREFIX + batchId, JSON.stringify({
+          date: today,
+          students: profiles,
+          attendance: attMap,
+          batchHistory: histItems,
+          cachedAt: Date.now(),
+        } satisfies CachedAtt));
+      } catch { /* ignore */ }
     } finally {
       setLoadingStudents(false);
     }
