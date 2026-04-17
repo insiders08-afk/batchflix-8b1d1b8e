@@ -36,7 +36,33 @@ import {
 import InstallButton from "@/components/InstallButton";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { supabase } from "@/integrations/supabase/client";
-import { useAuth } from "@/contexts/AuthContext";
+
+const AUTH_CACHE_KEY = "bh_auth_cache";
+const LEGACY_AUTH_CACHE_KEY = "bh_auth_user";
+const LAST_ROUTE_KEY = "bh_last_route";
+
+function readCachedAuth() {
+  try {
+    const raw = localStorage.getItem(AUTH_CACHE_KEY) ?? localStorage.getItem(LEGACY_AUTH_CACHE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function isProtectedRoute(path: string | null) {
+  if (!path) return false;
+  return (
+    path.startsWith("/admin") ||
+    path.startsWith("/teacher") ||
+    path.startsWith("/student") ||
+    path.startsWith("/parent") ||
+    path.startsWith("/owner") ||
+    path.startsWith("/superadmin") ||
+    path.startsWith("/batch/") ||
+    path.startsWith("/dm/")
+  );
+}
 
 interface BeforeInstallPromptEvent extends Event {
   prompt: () => void;
@@ -228,27 +254,33 @@ export default function Index() {
       return;
     }
 
+    const isOnline = typeof navigator === "undefined" ? true : navigator.onLine;
+    const rememberMe = localStorage.getItem("batchhub_remember_me") === "true";
+    const sessionOnly = sessionStorage.getItem("batchhub_session_only") === "true";
+
     // Fast-path: if we have a cached auth + last in-app route, redirect immediately.
-    // Supabase auth verification still runs below, but the user sees their app instantly.
+    // On offline cold starts this is the primary restore path.
     try {
-      const cached = localStorage.getItem("bh_auth_cache");
-      const lastRoute = localStorage.getItem("bh_last_route");
-      const rememberMe = localStorage.getItem("batchhub_remember_me") === "true";
-      const sessionOnly = sessionStorage.getItem("batchhub_session_only") === "true";
-      if (cached && lastRoute && (rememberMe || sessionOnly)) {
-        const parsed = JSON.parse(cached);
-        if (parsed?.userId && parsed?.status === "approved") {
+      const cached = readCachedAuth();
+      const lastRoute = localStorage.getItem(LAST_ROUTE_KEY);
+      if (cached?.userId && cached?.status === "approved" && isProtectedRoute(lastRoute) && (rememberMe || sessionOnly || !isOnline)) {
+        if (!isOnline) {
           navigate(lastRoute, { replace: true });
+          setAuthChecking(false);
           return;
         }
+        navigate(lastRoute, { replace: true });
+        return;
       }
     } catch { /* fall through to full check */ }
 
+    if (!isOnline) {
+      setAuthChecking(false);
+      return;
+    }
+
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (session?.user) {
-        const rememberMe = localStorage.getItem("batchhub_remember_me") === "true";
-        const sessionOnly = sessionStorage.getItem("batchhub_session_only") === "true";
-
         // Only sign out if NEITHER persistent session NOR session-only flag is set.
         // This prevents signing out users who just logged in and haven't had the flag
         // written yet (rare race), while still cleaning up truly stale sessions.
