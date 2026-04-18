@@ -17,6 +17,7 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { usePushNotifications } from "@/hooks/use-push-notifications";
 import BottomNav from "@/components/BottomNav";
 import OfflineBanner from "@/components/OfflineBanner";
+import { SyncIndicator } from "@/components/SyncIndicator";
 import { useDMList } from "@/hooks/useDMList";
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -338,6 +339,7 @@ export default function DashboardLayout({ children, title, role = "admin" }: Das
             {title && <h1 className="font-display font-semibold text-base sm:text-lg truncate">{title}</h1>}
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
+            <SyncIndicator />
             <Button
               variant="ghost"
               size="icon"
