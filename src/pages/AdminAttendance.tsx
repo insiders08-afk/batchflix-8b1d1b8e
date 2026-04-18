@@ -14,6 +14,7 @@ import type { Tables } from "@/integrations/supabase/types";
 import AttendanceAnalyticsModal from "@/components/attendance/AttendanceAnalyticsModal";
 import AttendanceCalendarView from "@/components/attendance/AttendanceCalendarView";
 import { isAttendanceEditable, formatTimingDisplay } from "@/lib/batchTiming";
+import { enqueueTask } from "@/lib/offlineQueue";
 
 // ── Offline cache: per-batch today snapshot + recent history. Stored under
 // a per-batch key so switching batches still hydrates instantly from cache.
@@ -238,16 +239,62 @@ export default function AdminAttendance() {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       const records = students.map(s => ({
-        batch_id: selectedBatchId, student_id: s.user_id, date: today,
+        student_id: s.user_id,
         present: attendance[s.user_id] === "present",
-        institute_code: instituteCode, marked_by: user?.id ?? null,
       }));
-      const { error } = await supabase.from("attendance").upsert(records, { onConflict: "batch_id,student_id,date" });
+
+      // Offline → enqueue & persist optimistic state to cache
+      if (typeof navigator !== "undefined" && !navigator.onLine) {
+        enqueueTask({
+          type: "attendance",
+          payload: {
+            batch_id: selectedBatchId,
+            institute_code: instituteCode,
+            date: today,
+            marked_by: user?.id ?? null,
+            records,
+          },
+        });
+        try {
+          localStorage.setItem(ATT_CACHE_PREFIX + selectedBatchId, JSON.stringify({
+            date: today, students, attendance, batchHistory, cachedAt: Date.now(),
+          }));
+        } catch { /* ignore */ }
+        toast({ title: "📥 Saved offline", description: "Will sync when back online." });
+        setSaving(false);
+        return;
+      }
+
+      const fullRecords = records.map(r => ({
+        batch_id: selectedBatchId, date: today,
+        institute_code: instituteCode, marked_by: user?.id ?? null,
+        ...r,
+      }));
+      const { error } = await supabase.from("attendance").upsert(fullRecords, { onConflict: "batch_id,student_id,date" });
       if (error) throw error;
       toast({ title: "✅ Attendance saved!", description: `Saved for ${students.length} students.` });
       loadBatchData(selectedBatchId);
     } catch (err: unknown) {
-      toast({ title: "Error saving attendance", description: err instanceof Error ? err.message : "Failed", variant: "destructive" });
+      const msg = err instanceof Error ? err.message : "Failed";
+      if (/fetch|network/i.test(msg)) {
+        const { data: { user } } = await supabase.auth.getUser();
+        enqueueTask({
+          type: "attendance",
+          payload: {
+            batch_id: selectedBatchId,
+            institute_code: instituteCode,
+            date: today,
+            marked_by: user?.id ?? null,
+            records: students.map(s => ({
+              student_id: s.user_id,
+              present: attendance[s.user_id] === "present",
+            })),
+          },
+        });
+        toast({ title: "📥 Saved offline", description: "Will sync when back online." });
+      } else {
+        toast({ title: "Error saving attendance", description: msg, variant: "destructive" });
+      }
     } finally {
       setSaving(false);
     }
