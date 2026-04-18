@@ -17,6 +17,7 @@ import { useToast } from "@/hooks/use-toast";
 import AttendanceAnalyticsModal from "@/components/attendance/AttendanceAnalyticsModal";
 import AttendanceCalendarView from "@/components/attendance/AttendanceCalendarView";
 import { isAttendanceEditable, formatTimingDisplay } from "@/lib/batchTiming";
+import { enqueueTask } from "@/lib/offlineQueue";
 
 const ATT_CACHE_PREFIX = "bh_attendance_today_";
 type CachedAtt = {
@@ -239,16 +240,63 @@ export default function TeacherAttendance() {
     setSaving(true);
     try {
       const records = students.map(s => ({
-        batch_id: selectedBatchId, student_id: s.user_id, date: today,
+        student_id: s.user_id,
         present: attendance[s.user_id] === "present",
-        institute_code: instituteCode, marked_by: userId,
       }));
-      const { error } = await supabase.from("attendance").upsert(records, { onConflict: "batch_id,student_id,date" });
+
+      // Offline → enqueue & optimistic cache update
+      if (typeof navigator !== "undefined" && !navigator.onLine) {
+        enqueueTask({
+          type: "attendance",
+          payload: {
+            batch_id: selectedBatchId,
+            institute_code: instituteCode,
+            date: today,
+            marked_by: userId,
+            records,
+          },
+        });
+        // Persist current grid to local cache so reload still shows it
+        try {
+          localStorage.setItem(ATT_CACHE_PREFIX + selectedBatchId, JSON.stringify({
+            date: today, students, attendance, batchHistory, cachedAt: Date.now(),
+          }));
+        } catch { /* ignore */ }
+        toast({ title: "📥 Saved offline", description: "Will sync when back online." });
+        setSaving(false);
+        return;
+      }
+
+      const fullRecords = records.map(r => ({
+        batch_id: selectedBatchId, date: today,
+        institute_code: instituteCode, marked_by: userId,
+        ...r,
+      }));
+      const { error } = await supabase.from("attendance").upsert(fullRecords, { onConflict: "batch_id,student_id,date" });
       if (error) throw error;
       toast({ title: "✅ Attendance saved!", description: `${students.length} students recorded.` });
       loadBatchData(selectedBatchId);
     } catch (err: unknown) {
-      toast({ title: "Error", description: err instanceof Error ? err.message : "Failed", variant: "destructive" });
+      // Network failure → fall back to queue
+      const msg = err instanceof Error ? err.message : "Failed";
+      if (/fetch|network/i.test(msg)) {
+        enqueueTask({
+          type: "attendance",
+          payload: {
+            batch_id: selectedBatchId,
+            institute_code: instituteCode,
+            date: today,
+            marked_by: userId,
+            records: students.map(s => ({
+              student_id: s.user_id,
+              present: attendance[s.user_id] === "present",
+            })),
+          },
+        });
+        toast({ title: "📥 Saved offline", description: "Will sync when back online." });
+      } else {
+        toast({ title: "Error", description: msg, variant: "destructive" });
+      }
     } finally {
       setSaving(false);
     }
