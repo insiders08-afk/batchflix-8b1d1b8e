@@ -51,9 +51,9 @@ async function prewarmTopConversationMessages(
         .limit(PREWARM_MESSAGES_PER_CHAT);
       if (error || !data) return;
       // Store oldest-first so the conversation page can render directly.
-      const ordered = [...data].reverse().map((m) => ({
+      const ordered: DirectMessage[] = [...data].reverse().map((m) => ({
         ...(m as DirectMessage),
-        isOwn: (m as DirectMessage).sender_id === currentUserId,
+        isSelf: (m as DirectMessage).sender_id === currentUserId,
       }));
       saveCachedMessages(`dm_${c.id}`, ordered);
     })
