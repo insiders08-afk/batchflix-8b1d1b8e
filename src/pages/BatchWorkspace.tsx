@@ -804,13 +804,34 @@ export default function BatchWorkspace() {
     setSavingAttendance(true);
     const today = new Date().toISOString().split("T")[0];
 
-    const rows = students.map((s) => ({
-      batch_id: batchId!,
-      institute_code: batch.institute_code,
+    const records = students.map((s) => ({
       student_id: s.user_id,
       present: attendance[s.id] || false,
+    }));
+
+    // Offline → queue & toast
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      enqueueTask({
+        type: "attendance",
+        payload: {
+          batch_id: batchId!,
+          institute_code: batch.institute_code,
+          date: today,
+          marked_by: currentUserId,
+          records,
+        },
+      });
+      toast({ title: "📥 Saved offline", description: "Will sync when back online." });
+      setSavingAttendance(false);
+      return;
+    }
+
+    const rows = records.map((r) => ({
+      batch_id: batchId!,
+      institute_code: batch.institute_code,
       date: today,
       marked_by: currentUserId,
+      ...r,
     }));
 
     const { error } = await supabase.from("attendance").upsert(rows, {
@@ -818,7 +839,22 @@ export default function BatchWorkspace() {
     });
 
     if (error) {
-      toast({ title: "Error saving attendance", description: error.message, variant: "destructive" });
+      // Fall back to queue on network error
+      if (/fetch|network/i.test(error.message)) {
+        enqueueTask({
+          type: "attendance",
+          payload: {
+            batch_id: batchId!,
+            institute_code: batch.institute_code,
+            date: today,
+            marked_by: currentUserId,
+            records,
+          },
+        });
+        toast({ title: "📥 Saved offline", description: "Will sync when back online." });
+      } else {
+        toast({ title: "Error saving attendance", description: error.message, variant: "destructive" });
+      }
     } else {
       toast({ title: "Attendance saved!", description: `Saved for ${today}` });
     }
