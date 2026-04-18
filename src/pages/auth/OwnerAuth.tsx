@@ -10,6 +10,7 @@ import InstallButton from "@/components/InstallButton";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { markSessionPersisted } from "@/lib/sessionPersistence";
 
 export default function OwnerAuth() {
   const navigate = useNavigate();
@@ -52,9 +53,8 @@ export default function OwnerAuth() {
         return;
       }
 
-      // Set session persistence flag — REQUIRED so Index.tsx doesn't sign us out on reload
-      localStorage.setItem("batchhub_remember_me", "true");
-      sessionStorage.removeItem("batchhub_session_only");
+      // Persist session so Index.tsx doesn't auto-sign-out (offline restore too).
+      markSessionPersisted(true);
 
       // Ensure app_owner has a profiles row (create one if missing)
       const { data: existingProfile } = await supabase
@@ -73,9 +73,7 @@ export default function OwnerAuth() {
         });
       }
 
-      // Persist session so Index.tsx doesn't auto-sign-out
-      localStorage.setItem("batchhub_remember_me", "true");
-      sessionStorage.removeItem("batchhub_session_only");
+      // (already persisted above)
 
       navigate("/owner");
     } catch (err: unknown) {

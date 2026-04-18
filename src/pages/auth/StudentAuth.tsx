@@ -11,6 +11,7 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { validatePassword, validatePhone, normalizeInstituteCode } from "@/lib/validation";
+import { markSessionPersisted } from "@/lib/sessionPersistence";
 
 type Screen = "register" | "login" | "forgot";
 type PendingStatus = "pending" | "rejected" | "approved";
