@@ -15,6 +15,25 @@ import AttendanceAnalyticsModal from "@/components/attendance/AttendanceAnalytic
 import AttendanceCalendarView from "@/components/attendance/AttendanceCalendarView";
 import { isAttendanceEditable, formatTimingDisplay } from "@/lib/batchTiming";
 
+// ── Offline cache: per-batch today snapshot + recent history. Stored under
+// a per-batch key so switching batches still hydrates instantly from cache.
+const ATT_CACHE_PREFIX = "bh_attendance_today_admin_";
+type CachedAtt = {
+  date: string;
+  students: Tables<"profiles">[];
+  attendance: Record<string, "present" | "absent">;
+  history: AttendanceHistoryItem[];
+  cachedAt: number;
+};
+function readAttCache(batchId: string, today: string): CachedAtt | null {
+  try {
+    const raw = localStorage.getItem(ATT_CACHE_PREFIX + batchId);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as CachedAtt;
+    return parsed.date === today ? parsed : null;
+  } catch { return null; }
+}
+
 type Batch = Tables<"batches">;
 type Profile = Tables<"profiles">;
 
@@ -70,6 +89,23 @@ export default function AdminAttendance() {
 
   const loadBatchData = useCallback(async (batchId: string) => {
     if (!batchId) return;
+
+    // 1. Hydrate immediately from today's cache so offline / cold-start
+    //    paints the real grid before any query resolves.
+    const cached = readAttCache(batchId, today);
+    if (cached) {
+      setStudents(cached.students);
+      setAttendance(cached.attendance);
+      setHistory(cached.history);
+      setLoadingStudents(false);
+    }
+
+    // 2. Don't even attempt the network when offline — cache is authoritative.
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      setLoadingStudents(false);
+      return;
+    }
+
     setLoadingStudents(true);
     try {
       const { data: enrollments } = await supabase.from("students_batches").select("student_id").eq("batch_id", batchId);
@@ -113,6 +149,17 @@ export default function AdminAttendance() {
         pct: val.total > 0 ? Math.round((val.present / val.total) * 100) : 0,
       }));
       setHistory(histItems);
+
+      // 3. Persist freshest snapshot for next cold start.
+      try {
+        localStorage.setItem(ATT_CACHE_PREFIX + batchId, JSON.stringify({
+          date: today,
+          students: profiles,
+          attendance: attMap,
+          history: histItems,
+          cachedAt: Date.now(),
+        } satisfies CachedAtt));
+      } catch { /* quota */ }
     } catch (err: unknown) {
       toast({ title: "Error", description: err instanceof Error ? err.message : "Failed to load", variant: "destructive" });
     } finally {
