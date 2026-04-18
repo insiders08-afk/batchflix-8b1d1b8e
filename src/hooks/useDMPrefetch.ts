@@ -12,15 +12,19 @@ import { supabase } from "@/integrations/supabase/client";
 import { saveCachedMessages, loadCachedMessages } from "@/lib/chatCache";
 import type { DirectConversation } from "@/types/chat";
 
-const PREFETCH_TOP_N = 5;
-const SKIP_IF_CACHED_GTE = 20;
+const PREFETCH_TOP_N = 10;
+const PREFETCH_LIMIT = 50;
+const PER_CONV_THROTTLE_MS = 60 * 1000;
+const lastPrefetchByConv: Record<string, number> = {};
 
 async function prefetchConversation(conv: DirectConversation) {
   const cacheKey = `dm_${conv.id}`;
-  const cached = loadCachedMessages(cacheKey);
-
-  // Skip if already warmed
-  if (cached.length >= SKIP_IF_CACHED_GTE) return;
+  const now = Date.now();
+  // Per-conversation throttle so we don't refetch the same chat on every
+  // hub re-render, but always refresh after the throttle expires so the
+  // cached 50-message window stays current.
+  if (now - (lastPrefetchByConv[conv.id] || 0) < PER_CONV_THROTTLE_MS) return;
+  lastPrefetchByConv[conv.id] = now;
 
   try {
     const { data } = await supabase
@@ -28,7 +32,7 @@ async function prefetchConversation(conv: DirectConversation) {
       .select("*")
       .eq("conversation_id", conv.id)
       .order("created_at", { ascending: false })
-      .limit(50);
+      .limit(PREFETCH_LIMIT);
 
     if (data && data.length > 0) {
       saveCachedMessages(cacheKey, [...data].reverse());
