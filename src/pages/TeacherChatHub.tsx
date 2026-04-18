@@ -39,16 +39,21 @@ export default function TeacherChatHub() {
   const instituteCode = authUser?.instituteCode ?? "";
   const instituteName = authUser?.instituteName ?? "";
 
+  const initialHubData = useMemo<TeacherHubData | undefined>(() => {
+    const b = loadHubCache<HubBatch[]>("teacher_batches") || [];
+    const a = loadHubCache<HubUserProfile>("teacher_admin") || null;
+    if (b.length === 0 && !a) return undefined;
+    return { batches: b, adminProfile: a };
+  }, []);
+
   const { data, isLoading } = useQuery<TeacherHubData>({
     queryKey: ["teacher-hub", instituteCode, currentUserId],
     queryFn: fetchTeacherHubData(instituteCode, currentUserId),
     staleTime: HUB_STALE_TIME,
     gcTime: HUB_GC_TIME,
     enabled: !!instituteCode && !!currentUserId,
-    placeholderData: {
-      batches: loadHubCache<HubBatch[]>("teacher_batches") || [],
-      adminProfile: loadHubCache<HubUserProfile>("teacher_admin") || null,
-    },
+    initialData: initialHubData,
+    initialDataUpdatedAt: 0,
   });
 
   const batches = data?.batches || [];
