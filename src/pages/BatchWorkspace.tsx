@@ -53,6 +53,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { sendPushNotification, getBatchStudentIds } from "@/lib/pushNotifications";
 import { formatChatDate, getMessagePreview, timeAgo } from "@/lib/chatUtils";
 import { saveCachedMessages, loadCachedMessages } from "@/lib/chatCache";
+import { enqueueTask } from "@/lib/offlineQueue";
 
 const BATCH_MSG_PAGE_SIZE = 50;
 
@@ -630,6 +631,43 @@ export default function BatchWorkspace() {
     });
     scrollToBottom("smooth");
 
+    // ─── Offline path: queue text-only message and keep optimistic bubble ─
+    const offline = typeof navigator !== "undefined" && !navigator.onLine;
+    if (offline) {
+      if (fileData) {
+        setMessages((prev) => {
+          const next = prev.filter((m) => m.id !== optimisticId);
+          saveCachedMessages(batchCacheKey, next);
+          return next;
+        });
+        toast({
+          title: "You're offline",
+          description: "File attachments need an internet connection.",
+          variant: "destructive",
+        });
+        setSendingMsg(false);
+        return;
+      }
+      enqueueTask({
+        type: "batch_message",
+        payload: {
+          batch_id: batchId!,
+          institute_code: batch.institute_code,
+          sender_id: currentUserId,
+          sender_name: currentUserName,
+          sender_role: currentUserRole,
+          message: chatInput.trim(),
+          reply_to_id: replyingTo?.id ?? null,
+          optimisticId,
+        },
+      });
+      setChatInput("");
+      setReplyingTo(null);
+      setSendingMsg(false);
+      setTimeout(() => inputRef.current?.focus(), 50);
+      return;
+    }
+
     const { data: insertedMessage, error } = await supabase
       .from("batch_messages")
       .insert({
@@ -766,13 +804,34 @@ export default function BatchWorkspace() {
     setSavingAttendance(true);
     const today = new Date().toISOString().split("T")[0];
 
-    const rows = students.map((s) => ({
-      batch_id: batchId!,
-      institute_code: batch.institute_code,
+    const records = students.map((s) => ({
       student_id: s.user_id,
       present: attendance[s.id] || false,
+    }));
+
+    // Offline → queue & toast
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      enqueueTask({
+        type: "attendance",
+        payload: {
+          batch_id: batchId!,
+          institute_code: batch.institute_code,
+          date: today,
+          marked_by: currentUserId,
+          records,
+        },
+      });
+      toast({ title: "📥 Saved offline", description: "Will sync when back online." });
+      setSavingAttendance(false);
+      return;
+    }
+
+    const rows = records.map((r) => ({
+      batch_id: batchId!,
+      institute_code: batch.institute_code,
       date: today,
       marked_by: currentUserId,
+      ...r,
     }));
 
     const { error } = await supabase.from("attendance").upsert(rows, {
@@ -780,7 +839,22 @@ export default function BatchWorkspace() {
     });
 
     if (error) {
-      toast({ title: "Error saving attendance", description: error.message, variant: "destructive" });
+      // Fall back to queue on network error
+      if (/fetch|network/i.test(error.message)) {
+        enqueueTask({
+          type: "attendance",
+          payload: {
+            batch_id: batchId!,
+            institute_code: batch.institute_code,
+            date: today,
+            marked_by: currentUserId,
+            records,
+          },
+        });
+        toast({ title: "📥 Saved offline", description: "Will sync when back online." });
+      } else {
+        toast({ title: "Error saving attendance", description: error.message, variant: "destructive" });
+      }
     } else {
       toast({ title: "Attendance saved!", description: `Saved for ${today}` });
     }

@@ -3,6 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import type { DirectMessage } from "@/types/chat";
 import { useToast } from "@/hooks/use-toast";
 import { saveCachedMessages, loadCachedMessages } from "@/lib/chatCache";
+import { enqueueTask } from "@/lib/offlineQueue";
 
 const MAX_FILE_SIZE_MB = 10;
 const PAGE_SIZE = 50;
@@ -305,6 +306,40 @@ export function useDirectMessages({
         };
         setMessages((prev) => [...prev, optimisticMsg]);
 
+        // ─── Offline path: queue text-only message and keep optimistic bubble ─
+        const offline = typeof navigator !== "undefined" && !navigator.onLine;
+        if (offline) {
+          if (fileData) {
+            // Files cannot be queued — drop optimistic and notify
+            setMessages((prev) => prev.filter((m) => m.id !== optimisticId));
+            toast({
+              title: "You're offline",
+              description: "File attachments need an internet connection.",
+              variant: "destructive",
+            });
+            return;
+          }
+          enqueueTask({
+            type: "dm_message",
+            payload: {
+              conversation_id: conversationId,
+              institute_code: instituteCode,
+              sender_id: currentUserId,
+              sender_name: currentUserName,
+              sender_role: currentUserRole,
+              message: messageText,
+              reply_to_id: replyToId ?? null,
+              optimisticId,
+            },
+          });
+          // Persist the optimistic bubble so it survives reload while offline
+          setMessages((prev) => {
+            saveCachedMessages(cacheKey, prev);
+            return prev;
+          });
+          return;
+        }
+
         const { data, error } = await supabase
           .from("direct_messages")
           .insert({
@@ -323,6 +358,24 @@ export function useDirectMessages({
           .single();
 
         if (error) {
+          // Network failure → fall back to queue (text only)
+          if (!fileData) {
+            enqueueTask({
+              type: "dm_message",
+              payload: {
+                conversation_id: conversationId,
+                institute_code: instituteCode,
+                sender_id: currentUserId,
+                sender_name: currentUserName,
+                sender_role: currentUserRole,
+                message: messageText,
+                reply_to_id: replyToId ?? null,
+                optimisticId,
+              },
+            });
+            toast({ title: "Message queued — will send when back online" });
+            return;
+          }
           setMessages((prev) => prev.filter((m) => m.id !== optimisticId));
           toast({ title: "Failed to send message", description: error.message, variant: "destructive" });
           return;
