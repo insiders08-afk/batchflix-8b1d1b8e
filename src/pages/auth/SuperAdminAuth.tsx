@@ -15,6 +15,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { INDIA_CITIES } from "@/lib/constants";
 import { validatePassword, validatePhone } from "@/lib/validation";
+import { markSessionPersisted } from "@/lib/sessionPersistence";
 
 type Screen = "login" | "register" | "pending" | "rejected" | "forgot";
 
@@ -222,7 +223,7 @@ export default function SuperAdminAuth() {
         return;
       }
 
-      localStorage.setItem("batchhub_remember_me", "true");
+      markSessionPersisted(true);
       navigate("/superadmin");
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Login failed";

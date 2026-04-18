@@ -11,6 +11,7 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { validatePassword, validatePhone, normalizeInstituteCode } from "@/lib/validation";
+import { markSessionPersisted, clearSessionPersistence } from "@/lib/sessionPersistence";
 
 type Screen = "register" | "login" | "forgot";
 
@@ -144,9 +145,8 @@ export default function ParentAuth() {
       });
       if (error) throw error;
 
-      // Set session persistence flag — REQUIRED so Index.tsx doesn't sign us out on reload
-      localStorage.setItem("batchhub_remember_me", "true");
-      sessionStorage.removeItem("batchhub_session_only");
+      // Persist session so Index.tsx doesn't auto-sign-out (covers offline restore too).
+      markSessionPersisted(true);
 
       const { data: profile } = await supabase
         .from("profiles")
@@ -158,19 +158,17 @@ export default function ParentAuth() {
       if (!profile) {
         toast({ title: "Account not found", description: "No parent account linked to this email.", variant: "destructive" });
         await supabase.auth.signOut();
-        localStorage.removeItem("batchhub_remember_me");
+        clearSessionPersistence();
         return;
       }
 
       if (profile.status === "approved" || profile.status === "active") {
-        // Persist session so Index.tsx doesn't auto-sign-out
-        localStorage.setItem("batchhub_remember_me", "true");
-        sessionStorage.removeItem("batchhub_session_only");
+        markSessionPersisted(true);
         navigate("/parent");
       } else if (profile.status === "rejected") {
         toast({ title: "Access Denied", description: "Your request was rejected. Please contact the institute admin.", variant: "destructive" });
         await supabase.auth.signOut();
-        localStorage.removeItem("batchhub_remember_me");
+        clearSessionPersistence();
       } else {
         setPendingUserId(data.user.id);
         setSubmittedName(profile.full_name);

@@ -12,6 +12,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { INDIA_CITIES } from "@/lib/constants";
 import { validatePassword, validatePhone } from "@/lib/validation";
+import { markSessionPersisted } from "@/lib/sessionPersistence";
 
 type Screen = "register" | "login" | "pending" | "rejected" | "forgot";
 
@@ -445,13 +446,7 @@ export default function AdminAuth() {
         password: loginForm.password
       });
       if (error) throw error;
-      if (rememberMe) {
-        localStorage.setItem("batchhub_remember_me", "true");
-        sessionStorage.removeItem("batchhub_session_only");
-      } else {
-        localStorage.removeItem("batchhub_remember_me");
-        sessionStorage.setItem("batchhub_session_only", "true");
-      }
+      markSessionPersisted(rememberMe);
 
       const userId = data.user?.id;
 

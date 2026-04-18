@@ -11,6 +11,7 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { validatePassword, validatePhone, normalizeInstituteCode } from "@/lib/validation";
+import { markSessionPersisted } from "@/lib/sessionPersistence";
 
 type Screen = "register" | "login" | "forgot";
 type PendingStatus = "pending" | "rejected" | "approved";
@@ -214,13 +215,7 @@ export default function TeacherAuth() {
         email: loginForm.email, password: loginForm.password,
       });
       if (error) throw error;
-      if (rememberMe) {
-        localStorage.setItem("batchhub_remember_me", "true");
-        sessionStorage.removeItem("batchhub_session_only");
-      } else {
-        localStorage.removeItem("batchhub_remember_me");
-        sessionStorage.setItem("batchhub_session_only", "true");
-      }
+      markSessionPersisted(rememberMe);
 
       const userId = data.user.id;
       const instituteCode = normalizeInstituteCode(loginForm.instituteCode);
