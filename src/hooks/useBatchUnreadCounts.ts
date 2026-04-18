@@ -1,6 +1,7 @@
 import { useEffect, useCallback, useRef, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { saveHubCache, loadHubCache } from "@/lib/hubCache";
 
 const STALE_TIME = 30 * 1000;
 
@@ -17,6 +18,7 @@ async function fetchBatchUnreadCounts(
   (data || []).forEach((row: { batch_id: string; unread_count: number }) => {
     map[row.batch_id] = Number(row.unread_count);
   });
+  saveHubCache(`batch_unread_${userId}_${instituteCode}`, map);
   return map;
 }
 
@@ -28,6 +30,13 @@ export function useBatchUnreadCounts(userId: string, instituteCode: string) {
     () => ["batch-unread-counts", userId, instituteCode],
     [userId, instituteCode]
   );
+  const cacheKey = `batch_unread_${userId}_${instituteCode}`;
+
+  // initialData so unread badges survive offline cold-starts.
+  const cached = useMemo(
+    () => loadHubCache<Record<string, number>>(cacheKey) || {},
+    [cacheKey]
+  );
 
   const { data: batchUnreadCounts = {} } = useQuery<Record<string, number>>({
     queryKey,
@@ -35,6 +44,8 @@ export function useBatchUnreadCounts(userId: string, instituteCode: string) {
     staleTime: STALE_TIME,
     gcTime: 10 * 60 * 1000,
     enabled: !!userId && !!instituteCode,
+    initialData: Object.keys(cached).length > 0 ? cached : undefined,
+    initialDataUpdatedAt: 0,
   });
 
   const refetch = useCallback(() => {

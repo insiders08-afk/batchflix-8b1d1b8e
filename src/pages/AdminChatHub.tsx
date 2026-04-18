@@ -30,17 +30,25 @@ export default function AdminChatHub() {
   const instituteCode = authUser?.instituteCode ?? "";
   const instituteName = authUser?.instituteName ?? "";
 
+  // initialData (not placeholderData) so cached batches/teachers/students
+  // survive offline cold-starts. With placeholderData a failed fetch leaves
+  // `data` undefined and the chat list goes blank offline.
+  const initialHubData = useMemo<AdminHubData | undefined>(() => {
+    const b = loadHubCache<HubBatch[]>("admin_batches") || [];
+    const t = loadHubCache<HubUserProfile[]>("admin_teachers") || [];
+    const s = loadHubCache<HubUserProfile[]>("admin_students") || [];
+    if (b.length === 0 && t.length === 0 && s.length === 0) return undefined;
+    return { batches: b, teachers: t, students: s };
+  }, []);
+
   const { data, isLoading } = useQuery<AdminHubData>({
     queryKey: ["admin-hub", instituteCode],
     queryFn: fetchAdminHubData(instituteCode),
     staleTime: HUB_STALE_TIME,
     gcTime: HUB_GC_TIME,
     enabled: !!instituteCode,
-    placeholderData: {
-      batches: loadHubCache<HubBatch[]>("admin_batches") || [],
-      teachers: loadHubCache<HubUserProfile[]>("admin_teachers") || [],
-      students: loadHubCache<HubUserProfile[]>("admin_students") || [],
-    },
+    initialData: initialHubData,
+    initialDataUpdatedAt: 0,
   });
 
   const batches = data?.batches || [];

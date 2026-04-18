@@ -35,16 +35,21 @@ export default function StudentChatHub() {
 
   const debouncedSearch = useDebounce(search, 250);
 
+  const initialHubData = useMemo<StudentHubData | undefined>(() => {
+    const b = loadHubCache<HubBatch[]>("student_batches") || [];
+    const a = loadHubCache<HubUserProfile>("student_admin") || null;
+    if (b.length === 0 && !a) return undefined;
+    return { batches: b, adminProfile: a };
+  }, []);
+
   const { data, isLoading } = useQuery<StudentHubData>({
     queryKey: ["student-hub", instituteCode, currentUserId],
     queryFn: fetchStudentHubData(instituteCode, currentUserId),
     staleTime: HUB_STALE_TIME,
     gcTime: HUB_GC_TIME,
     enabled: !!instituteCode && !!currentUserId,
-    placeholderData: {
-      batches: loadHubCache<HubBatch[]>("student_batches") || [],
-      adminProfile: loadHubCache<HubUserProfile>("student_admin") || null,
-    },
+    initialData: initialHubData,
+    initialDataUpdatedAt: 0,
   });
 
   const batches = data?.batches || [];
