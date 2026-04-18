@@ -3,6 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import type { DirectMessage } from "@/types/chat";
 import { useToast } from "@/hooks/use-toast";
 import { saveCachedMessages, loadCachedMessages } from "@/lib/chatCache";
+import { enqueueTask } from "@/lib/offlineQueue";
 
 const MAX_FILE_SIZE_MB = 10;
 const PAGE_SIZE = 50;
