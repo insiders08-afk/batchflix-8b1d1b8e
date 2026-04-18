@@ -26,13 +26,20 @@ export function useBatchLastMessages(instituteCode: string) {
   const queryKey = useMemo(() => ["batch-last-msgs", instituteCode], [instituteCode]);
   const cacheKey = `batch_last_msgs_${instituteCode}`;
 
+  // initialData (not placeholderData) so the cache survives offline errors.
+  const cached = useMemo(
+    () => loadHubCache<Record<string, BatchLastMessage>>(cacheKey) || {},
+    [cacheKey]
+  );
+
   const { data: batchLastMsgs = {} } = useQuery<Record<string, BatchLastMessage>>({
     queryKey,
     queryFn: () => fetchBatchLastMsgs(instituteCode),
     staleTime: STALE_TIME,
     gcTime: 10 * 60 * 1000,
     enabled: !!instituteCode,
-    placeholderData: loadHubCache<Record<string, BatchLastMessage>>(cacheKey) || {},
+    initialData: Object.keys(cached).length > 0 ? cached : undefined,
+    initialDataUpdatedAt: 0,
   });
 
   const refetch = useCallback(() => {

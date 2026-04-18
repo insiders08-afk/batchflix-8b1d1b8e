@@ -17,27 +17,29 @@ const DM_STALE_TIME = 30 * 1000;
 // conversations so opening any of them offline shows real history
 // instead of a blank screen.
 const PREWARM_TOP_CHATS = 10;
-const PREWARM_MESSAGES_PER_CHAT = 20;
-const PREWARM_THROTTLE_MS = 5 * 60 * 1000; // 5 min between attempts
-let lastPrewarmAt = 0;
+const PREWARM_MESSAGES_PER_CHAT = 50;
+const PREWARM_THROTTLE_MS = 60 * 1000; // 1 min between attempts (per chat key)
+// Per-conversation last-warm timestamps so we refresh recent chats
+// without spamming the server. A chat is re-warmed at most once a minute.
+const lastPrewarmByConv: Record<string, number> = {};
 
 async function prewarmTopConversationMessages(
   conversations: DirectConversation[],
   currentUserId: string
 ): Promise<void> {
   if (typeof navigator !== "undefined" && !navigator.onLine) return;
-  if (Date.now() - lastPrewarmAt < PREWARM_THROTTLE_MS) return;
-  lastPrewarmAt = Date.now();
 
-  // Pick top-K conversations by recency that don't already have a fresh
-  // local cache. We avoid re-fetching cached chats so we don't pay the
-  // network cost on every list refresh.
+  // Pick top-K conversations by recency. Always refresh the cache for the
+  // top chats (not just empty ones) so the latest 50 msgs are always ready
+  // for offline viewing. Per-conv throttle prevents request storms.
+  const now = Date.now();
   const candidates = conversations
     .filter((c) => c.last_message_at)
     .slice(0, PREWARM_TOP_CHATS)
-    .filter((c) => loadCachedMessages<DirectMessage>(`dm_${c.id}`).length === 0);
+    .filter((c) => (now - (lastPrewarmByConv[c.id] || 0)) >= PREWARM_THROTTLE_MS);
 
   if (candidates.length === 0) return;
+  candidates.forEach((c) => { lastPrewarmByConv[c.id] = now; });
 
   // Run in parallel with a soft cap; even on slow networks 10 concurrent
   // 20-row queries against an indexed table return well under a second.
@@ -101,13 +103,24 @@ export function useDMList({ currentUserId, currentUserRole, instituteCode }: Use
   );
   const cacheKey = `dm_list_${currentUserRole}_${currentUserId}`;
 
+  // Use `initialData` (not `placeholderData`) so the cached list survives
+  // offline fetch errors. With `placeholderData`, a failed query leaves
+  // `data` undefined and the chat list disappears. `initialData` seeds
+  // the query cache itself, so it remains the source of truth until a
+  // successful refetch replaces it.
+  const cachedList = useMemo(
+    () => loadHubCache<DirectConversation[]>(cacheKey) || [],
+    [cacheKey]
+  );
+
   const { data: conversations = [], isLoading: loading } = useQuery<DirectConversation[]>({
     queryKey,
     queryFn: () => fetchDMConversations(currentUserId, currentUserRole, instituteCode),
     staleTime: DM_STALE_TIME,
     gcTime: 10 * 60 * 1000,
     enabled: !!currentUserId && !!instituteCode,
-    placeholderData: loadHubCache<DirectConversation[]>(cacheKey) || [],
+    initialData: cachedList.length > 0 ? cachedList : undefined,
+    initialDataUpdatedAt: 0, // mark stale so a background refetch still fires when online
     refetchOnWindowFocus: true,
   });
 
