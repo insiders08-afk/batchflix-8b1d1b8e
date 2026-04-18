@@ -36,6 +36,7 @@ import {
 import InstallButton from "@/components/InstallButton";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { supabase } from "@/integrations/supabase/client";
+import { isSessionPersisted, isLongLivedSession, clearSessionPersistence } from "@/lib/sessionPersistence";
 
 const AUTH_CACHE_KEY = "bh_auth_cache";
 const LEGACY_AUTH_CACHE_KEY = "bh_auth_user";
@@ -255,8 +256,7 @@ export default function Index() {
     }
 
     const isOnline = typeof navigator === "undefined" ? true : navigator.onLine;
-    const rememberMe = localStorage.getItem("batchhub_remember_me") === "true";
-    const sessionOnly = sessionStorage.getItem("batchhub_session_only") === "true";
+    const persisted = isSessionPersisted();
 
     // Fast-path: if we have a cached auth + last in-app route, redirect immediately.
     // On offline cold starts this is the primary restore path.
@@ -267,7 +267,7 @@ export default function Index() {
         cached?.userId &&
         (cached?.status === "approved" || cached?.status === "active") &&
         isProtectedRoute(lastRoute) &&
-        (rememberMe || sessionOnly || !isOnline)
+        (persisted || !isOnline)
       ) {
         navigate(lastRoute, { replace: true });
         setAuthChecking(false);
@@ -276,7 +276,7 @@ export default function Index() {
       if (
         cached?.userId &&
         (cached?.status === "approved" || cached?.status === "active") &&
-        (rememberMe || sessionOnly || !isOnline)
+        (persisted || !isOnline)
       ) {
         const fallbackPath = roleToPath[cached.userRole] ?? null;
         if (fallbackPath) {
@@ -294,11 +294,12 @@ export default function Index() {
 
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (session?.user) {
-        // Only sign out if NEITHER persistent session NOR session-only flag is set.
-        // This prevents signing out users who just logged in and haven't had the flag
-        // written yet (rare race), while still cleaning up truly stale sessions.
-        if (!rememberMe && !sessionOnly) {
+        // Only sign out if persistence has fully expired (no flag, no legacy
+        // flag, and no remember-me). Avoid touching auth state otherwise so
+        // freshly-logged-in users don't race against the persistence write.
+        if (!persisted && !isLongLivedSession()) {
           await supabase.auth.signOut();
+          clearSessionPersistence();
           setAuthChecking(false);
           return;
         }

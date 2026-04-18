@@ -119,16 +119,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const parts = name.split(" ");
       const initials = parts.map((p: string) => p[0]).join("").toUpperCase().slice(0, 2);
 
+      // Cache integrity: if profile fetch returned nothing but we already
+      // had a valid cached identity for this user, prefer the cache over
+      // writing a corrupted "default student / pending" record. This used
+      // to demote real admins to students whenever a transient query
+      // hiccup happened during cold-start hydration.
+      if (!profile && cachedUser?.userId === session.user.id) {
+        setAuthUser(cachedUser);
+        setAuthLoading(false);
+        return;
+      }
+
       const newUser: AuthUser = {
         userId: session.user.id,
         userName: name,
-        userRole: profile?.role ?? "student",
-        userRoles,
+        userRole: profile?.role ?? cachedUser?.userRole ?? "student",
+        userRoles: userRoles.length > 0 ? userRoles : (cachedUser?.userRoles ?? []),
         userInitials: initials,
-        instituteCode: profile?.institute_code ?? "",
-        instituteName,
+        instituteCode: profile?.institute_code ?? cachedUser?.instituteCode ?? "",
+        instituteName: instituteName || cachedUser?.instituteName || "",
         // LOW-04: Default to "pending" instead of "active" for missing profiles
-        status: profile?.status ?? "pending",
+        status: profile?.status ?? cachedUser?.status ?? "pending",
       };
 
       setAuthUser(newUser);
