@@ -1,8 +1,9 @@
 import { useEffect, useCallback, useRef, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import type { DirectConversation } from "@/types/chat";
+import type { DirectConversation, DirectMessage } from "@/types/chat";
 import { saveHubCache, loadHubCache } from "@/lib/hubCache";
+import { saveCachedMessages, loadCachedMessages } from "@/lib/chatCache";
 
 interface UseDMListOptions {
   currentUserId: string;
@@ -11,6 +12,53 @@ interface UseDMListOptions {
 }
 
 const DM_STALE_TIME = 30 * 1000;
+
+// Offline pre-warm: cache last N messages for the top K most-recent
+// conversations so opening any of them offline shows real history
+// instead of a blank screen.
+const PREWARM_TOP_CHATS = 10;
+const PREWARM_MESSAGES_PER_CHAT = 20;
+const PREWARM_THROTTLE_MS = 5 * 60 * 1000; // 5 min between attempts
+let lastPrewarmAt = 0;
+
+async function prewarmTopConversationMessages(
+  conversations: DirectConversation[],
+  currentUserId: string
+): Promise<void> {
+  if (typeof navigator !== "undefined" && !navigator.onLine) return;
+  if (Date.now() - lastPrewarmAt < PREWARM_THROTTLE_MS) return;
+  lastPrewarmAt = Date.now();
+
+  // Pick top-K conversations by recency that don't already have a fresh
+  // local cache. We avoid re-fetching cached chats so we don't pay the
+  // network cost on every list refresh.
+  const candidates = conversations
+    .filter((c) => c.last_message_at)
+    .slice(0, PREWARM_TOP_CHATS)
+    .filter((c) => loadCachedMessages<DirectMessage>(`dm_${c.id}`).length === 0);
+
+  if (candidates.length === 0) return;
+
+  // Run in parallel with a soft cap; even on slow networks 10 concurrent
+  // 20-row queries against an indexed table return well under a second.
+  await Promise.allSettled(
+    candidates.map(async (c) => {
+      const { data, error } = await supabase
+        .from("direct_messages")
+        .select("*")
+        .eq("conversation_id", c.id)
+        .order("created_at", { ascending: false })
+        .limit(PREWARM_MESSAGES_PER_CHAT);
+      if (error || !data) return;
+      // Store oldest-first so the conversation page can render directly.
+      const ordered = [...data].reverse().map((m) => ({
+        ...(m as DirectMessage),
+        isOwn: (m as DirectMessage).sender_id === currentUserId,
+      }));
+      saveCachedMessages(`dm_${c.id}`, ordered);
+    })
+  );
+}
 
 async function fetchDMConversations(
   currentUserId: string,

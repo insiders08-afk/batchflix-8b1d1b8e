@@ -25,6 +25,28 @@ const MONTHS = ["January","February","March","April","May","June","July","August
 const currentYear = new Date().getFullYear();
 const YEARS = Array.from({ length: 5 }, (_, i) => currentYear - i);
 
+// ── Offline cache: student's own attendance for today + recent history ─────
+// Survives PWA cold-starts so the page paints real data before any network
+// request resolves (or at all when offline).
+const STUDENT_ATT_CACHE_KEY = "bh_student_attendance";
+type CachedStudentAtt = {
+  userId: string;
+  batches: BatchInfo[];
+  records: AttendanceRecord[];
+  cachedAt: number;
+};
+function readStudentAttCache(userId: string): CachedStudentAtt | null {
+  try {
+    const raw = localStorage.getItem(STUDENT_ATT_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as CachedStudentAtt;
+    return parsed.userId === userId ? parsed : null;
+  } catch { return null; }
+}
+function writeStudentAttCache(payload: CachedStudentAtt) {
+  try { localStorage.setItem(STUDENT_ATT_CACHE_KEY, JSON.stringify(payload)); } catch { /* quota */ }
+}
+
 function getDaysInMonth(year: number, month: number) {
   return new Date(year, month + 1, 0).getDate();
 }
@@ -50,19 +72,36 @@ export default function StudentAttendance() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { setLoading(false); return; }
 
+      // 1. Hydrate from cache immediately so the page paints offline-first.
+      const cached = readStudentAttCache(user.id);
+      if (cached) {
+        setBatches(cached.batches);
+        if (cached.batches.length === 1) setSelectedBatch(cached.batches[0].id);
+        setRecords(cached.records);
+        setLoading(false);
+      }
+
+      // 2. Skip network round-trip when offline — the cache is the source of truth.
+      if (typeof navigator !== "undefined" && !navigator.onLine) {
+        setLoading(false);
+        return;
+      }
+
       const { data: enrollments } = await supabase
         .from("students_batches")
         .select("batch_id")
         .eq("student_id", user.id);
 
       const batchIds = (enrollments || []).map(e => e.batch_id);
+      let nextBatches: BatchInfo[] = [];
       if (batchIds.length > 0) {
         const { data: batchData } = await supabase
           .from("batches")
           .select("id, name, course")
           .in("id", batchIds);
-        setBatches((batchData || []) as BatchInfo[]);
-        if (batchData && batchData.length === 1) setSelectedBatch(batchData[0].id);
+        nextBatches = (batchData || []) as BatchInfo[];
+        setBatches(nextBatches);
+        if (nextBatches.length === 1) setSelectedBatch(nextBatches[0].id);
       }
 
       const { data: attData } = await supabase
@@ -72,8 +111,17 @@ export default function StudentAttendance() {
         .order("date", { ascending: false })
         .limit(365);
 
-      setRecords((attData || []) as AttendanceRecord[]);
+      const nextRecords = (attData || []) as AttendanceRecord[];
+      setRecords(nextRecords);
       setLoading(false);
+
+      // 3. Persist freshest snapshot for the next cold start.
+      writeStudentAttCache({
+        userId: user.id,
+        batches: nextBatches,
+        records: nextRecords,
+        cachedAt: Date.now(),
+      });
     };
     init();
   }, []);
