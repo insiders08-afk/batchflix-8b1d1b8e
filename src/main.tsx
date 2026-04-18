@@ -3,6 +3,7 @@ import App from "./App.tsx";
 import "./index.css";
 import "./App.css";
 import { prefetchCriticalRoutes } from "./lib/prefetchRoutes";
+import { initOfflineQueue } from "./lib/offlineQueue";
 import { registerSW } from "virtual:pwa-register";
 import { toast } from "sonner";
 
@@ -10,6 +11,9 @@ createRoot(document.getElementById("root")!).render(<App />);
 
 // Start prefetching chat & dashboard chunks once the main thread is idle
 prefetchCriticalRoutes();
+
+// Boot the offline write queue (auto-flushes on `online` + visibility change)
+initOfflineQueue();
 
 // ─── Service worker registration with "Update available" toast ──────────────
 // In preview iframes / lovable preview hosts the SW is intentionally disabled
