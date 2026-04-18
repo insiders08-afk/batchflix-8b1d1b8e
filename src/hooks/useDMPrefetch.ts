@@ -1,15 +1,16 @@
 /**
- * useDMPrefetch — Priority 3 warm-up
+ * useDMPrefetch — Offline pre-warm for top DM threads
  *
  * Fires after the DM list loads and silently fetches the newest 50 messages
- * for the top-5 conversations (sorted by last_message_at) into localStorage.
+ * for the top-10 conversations (sorted by last_message_at) into localStorage.
  *
- * If the cache already has ≥20 messages for a conversation it is skipped,
- * avoiding redundant fetches when the user reopens the app.
+ * Per-conversation throttling (1 min) keeps the cache fresh while preventing
+ * request storms on repeated re-renders. Always re-fetches after the throttle
+ * window so the cached 50-message tail stays current.
  */
 import { useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { saveCachedMessages, loadCachedMessages } from "@/lib/chatCache";
+import { saveCachedMessages } from "@/lib/chatCache";
 import type { DirectConversation } from "@/types/chat";
 
 const PREFETCH_TOP_N = 10;
