@@ -257,8 +257,8 @@ export default function AdminAttendance() {
         });
         try {
           localStorage.setItem(ATT_CACHE_PREFIX + selectedBatchId, JSON.stringify({
-            date: today, students, attendance, batchHistory, cachedAt: Date.now(),
-          }));
+            date: today, students, attendance, history, cachedAt: Date.now(),
+          } satisfies CachedAtt));
         } catch { /* ignore */ }
         toast({ title: "📥 Saved offline", description: "Will sync when back online." });
         setSaving(false);
