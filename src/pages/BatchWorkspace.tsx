@@ -53,6 +53,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { sendPushNotification, getBatchStudentIds } from "@/lib/pushNotifications";
 import { formatChatDate, getMessagePreview, timeAgo } from "@/lib/chatUtils";
 import { saveCachedMessages, loadCachedMessages } from "@/lib/chatCache";
+import { enqueueTask } from "@/lib/offlineQueue";
 
 const BATCH_MSG_PAGE_SIZE = 50;
 
@@ -629,6 +630,43 @@ export default function BatchWorkspace() {
       return next;
     });
     scrollToBottom("smooth");
+
+    // ─── Offline path: queue text-only message and keep optimistic bubble ─
+    const offline = typeof navigator !== "undefined" && !navigator.onLine;
+    if (offline) {
+      if (fileData) {
+        setMessages((prev) => {
+          const next = prev.filter((m) => m.id !== optimisticId);
+          saveCachedMessages(batchCacheKey, next);
+          return next;
+        });
+        toast({
+          title: "You're offline",
+          description: "File attachments need an internet connection.",
+          variant: "destructive",
+        });
+        setSendingMsg(false);
+        return;
+      }
+      enqueueTask({
+        type: "batch_message",
+        payload: {
+          batch_id: batchId!,
+          institute_code: batch.institute_code,
+          sender_id: currentUserId,
+          sender_name: currentUserName,
+          sender_role: currentUserRole,
+          message: chatInput.trim(),
+          reply_to_id: replyingTo?.id ?? null,
+          optimisticId,
+        },
+      });
+      setChatInput("");
+      setReplyingTo(null);
+      setSendingMsg(false);
+      setTimeout(() => inputRef.current?.focus(), 50);
+      return;
+    }
 
     const { data: insertedMessage, error } = await supabase
       .from("batch_messages")
