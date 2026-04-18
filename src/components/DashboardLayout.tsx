@@ -194,6 +194,8 @@ export default function DashboardLayout({ children, title, role = "admin" }: Das
 
   const handleLogout = async () => {
     localStorage.removeItem("batchhub_active_institute");
+    const { clearSessionPersistence } = await import("@/lib/sessionPersistence");
+    clearSessionPersistence();
     await supabase.auth.signOut();
     navigate("/");
   };
