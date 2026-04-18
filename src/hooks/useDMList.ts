@@ -119,6 +119,16 @@ export function useDMList({ currentUserId, currentUserRole, instituteCode }: Use
     [conversations, currentUserId]
   );
 
+  // Offline pre-warm: whenever the conversation list changes (login,
+  // refetch, realtime update), opportunistically cache the latest 20
+  // messages of the top 10 chats so DMConversation pages render
+  // instantly when offline. Throttled so it doesn't spam the network.
+  useEffect(() => {
+    if (!currentUserId || conversations.length === 0) return;
+    if (typeof navigator !== "undefined" && !navigator.onLine) return;
+    void prewarmTopConversationMessages(conversations, currentUserId);
+  }, [conversations, currentUserId]);
+
   const refetch = useCallback(() => {
     queryClient.invalidateQueries({ queryKey });
   }, [queryClient, queryKey]);
