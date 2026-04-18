@@ -9,22 +9,24 @@ import { ThemeProvider } from "@/components/ThemeProvider";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { pickSkeletonForPath } from "@/components/skeletons/RouteSkeletons";
 
-// Critical landing page — loaded eagerly
-import Index from "./pages/Index";
-import NotFound from "./pages/NotFound";
-import AdminDashboard from "./pages/AdminDashboard";
-import AdminAttendance from "./pages/AdminAttendance";
-import AdminChatHub from "./pages/AdminChatHub";
-import BatchWorkspace from "./pages/BatchWorkspace";
-import TeacherDashboard from "./pages/TeacherDashboard";
-import TeacherAttendance from "./pages/TeacherAttendance";
-import TeacherChatHub from "./pages/TeacherChatHub";
-import StudentDashboard from "./pages/StudentDashboard";
-import StudentAttendance from "./pages/StudentAttendance";
-import StudentChatHub from "./pages/StudentChatHub";
-import DMConversation from "./pages/DMConversation";
+// TEMP: every route lazy-loaded so we can compare offline-mode chunk loading
+// behaviour vs. the previous "eagerly load critical routes" baseline. The
+// service worker precache (vite-plugin-pwa) still ships every chunk, so each
+// of these dynamic imports resolves from cache when offline.
+const Index = lazy(() => import("./pages/Index"));
+const NotFound = lazy(() => import("./pages/NotFound"));
+const AdminDashboard = lazy(() => import("./pages/AdminDashboard"));
+const AdminAttendance = lazy(() => import("./pages/AdminAttendance"));
+const AdminChatHub = lazy(() => import("./pages/AdminChatHub"));
+const BatchWorkspace = lazy(() => import("./pages/BatchWorkspace"));
+const TeacherDashboard = lazy(() => import("./pages/TeacherDashboard"));
+const TeacherAttendance = lazy(() => import("./pages/TeacherAttendance"));
+const TeacherChatHub = lazy(() => import("./pages/TeacherChatHub"));
+const StudentDashboard = lazy(() => import("./pages/StudentDashboard"));
+const StudentAttendance = lazy(() => import("./pages/StudentAttendance"));
+const StudentChatHub = lazy(() => import("./pages/StudentChatHub"));
+const DMConversation = lazy(() => import("./pages/DMConversation"));
 
-// All other pages — lazy loaded to reduce initial JS bundle
 const AdminDemo = lazy(() => import("./pages/demo/AdminDemo"));
 const StudentBatchApply = lazy(() => import("./pages/StudentBatchApply"));
 
