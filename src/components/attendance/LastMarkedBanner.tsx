@@ -7,6 +7,8 @@ interface Props {
   date: string; // YYYY-MM-DD
   /** bump this number to force a refetch (e.g. after a save) */
   refreshKey?: number;
+  /** When true, render a compact inline span (no banner card). */
+  inline?: boolean;
 }
 
 interface Marker {
@@ -20,8 +22,11 @@ interface Marker {
  * "Last marked by Ravi at 4:32 PM (60 students)" — sits above the grid so
  * a second user (e.g. admin) sees that a teacher has already saved before
  * they overwrite. Powered by the `get_attendance_last_marker` RPC.
+ *
+ * Pass `inline` to render as a compact span suitable for embedding inside
+ * the schedule row.
  */
-export default function LastMarkedBanner({ batchId, date, refreshKey = 0 }: Props) {
+export default function LastMarkedBanner({ batchId, date, refreshKey = 0, inline = false }: Props) {
   const [marker, setMarker] = useState<Marker | null>(null);
 
   useEffect(() => {
@@ -46,6 +51,15 @@ export default function LastMarkedBanner({ batchId, date, refreshKey = 0 }: Prop
   });
   const who = marker.marker_name || "Someone";
   const count = marker.rows_count;
+
+  if (inline) {
+    return (
+      <span className="text-muted-foreground">
+        · last by <span className="font-semibold text-foreground">{who}</span> at{" "}
+        <span className="font-semibold text-foreground">{when}</span> ({count})
+      </span>
+    );
+  }
 
   return (
     <div className="flex flex-wrap items-center gap-2 px-3 py-2 rounded-lg text-xs border bg-primary/5 border-primary/20 text-primary">
