@@ -4,6 +4,7 @@ import "./index.css";
 import "./App.css";
 import { prefetchCriticalRoutes } from "./lib/prefetchRoutes";
 import { initOfflineQueue } from "./lib/offlineQueue";
+import { pruneExpiredAttendanceCaches } from "./lib/attendanceCache";
 import { registerSW } from "virtual:pwa-register";
 import { toast } from "sonner";
 
@@ -14,6 +15,9 @@ prefetchCriticalRoutes();
 
 // Boot the offline write queue (auto-flushes on `online` + visibility change)
 initOfflineQueue();
+
+// Drop expired attendance caches (TTL: 24h per-batch, 7d student lifetime).
+pruneExpiredAttendanceCaches();
 
 // ─── Service worker registration with "Update available" toast ──────────────
 // In preview iframes / lovable preview hosts the SW is intentionally disabled

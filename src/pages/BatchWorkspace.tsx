@@ -803,10 +803,25 @@ export default function BatchWorkspace() {
     if (!batch) return;
     setSavingAttendance(true);
     const today = new Date().toISOString().split("T")[0];
+    const clientTs = new Date().toISOString();
 
-    const records = students.map((s) => ({
+    // Bug A11 fix: only save students that were explicitly toggled. A boolean
+    // OR `false` would silently mark every untouched student Absent. We
+    // require at least one explicit mark and only persist those students.
+    const explicitlyMarked = students.filter((s) => attendance[s.id] !== undefined);
+    if (explicitlyMarked.length === 0) {
+      toast({
+        title: "Nothing to save",
+        description: "Tap Present/Absent next to at least one student first.",
+        variant: "destructive",
+      });
+      setSavingAttendance(false);
+      return;
+    }
+
+    const records = explicitlyMarked.map((s) => ({
       student_id: s.user_id,
-      present: attendance[s.id] || false,
+      present: attendance[s.id] === true,
     }));
 
     // Offline → queue & toast
@@ -819,6 +834,7 @@ export default function BatchWorkspace() {
           date: today,
           marked_by: currentUserId,
           records,
+          client_ts: clientTs,
         },
       });
       toast({ title: "📥 Saved offline", description: "Will sync when back online." });
@@ -831,6 +847,8 @@ export default function BatchWorkspace() {
       institute_code: batch.institute_code,
       date: today,
       marked_by: currentUserId,
+      marked_at_client_ts: clientTs,
+      updated_by: currentUserId,
       ...r,
     }));
 
@@ -849,6 +867,7 @@ export default function BatchWorkspace() {
             date: today,
             marked_by: currentUserId,
             records,
+            client_ts: clientTs,
           },
         });
         toast({ title: "📥 Saved offline", description: "Will sync when back online." });
