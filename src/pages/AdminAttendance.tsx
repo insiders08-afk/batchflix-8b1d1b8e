@@ -73,6 +73,12 @@ export default function AdminAttendance() {
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
   const [analyticsOpen, setAnalyticsOpen] = useState(false);
 
+  // Saved baseline → derives "isDirty" + "hasEverSaved" for the Save/Update button
+  const [savedBaseline, setSavedBaseline] = useState<Record<string, "present" | "absent">>({});
+  const [hasEverSaved, setHasEverSaved] = useState(false);
+  const [lastMarkerKey, setLastMarkerKey] = useState(0); // bump after save → refetch banner
+  const [rollCallOpen, setRollCallOpen] = useState(false);
+
   const today = new Date().toISOString().split("T")[0];
   const todayDisplay = new Date().toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" });
 
