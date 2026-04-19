@@ -655,6 +655,16 @@ export default function AdminAttendance() {
         batchId={selectedBatchId}
         schedule={selectedBatch?.schedule}
       />
+
+      <RollCallMode
+        open={rollCallOpen}
+        onClose={() => setRollCallOpen(false)}
+        students={students}
+        attendance={attendance}
+        onMark={(uid, status) => setAttendance(prev => ({ ...prev, [uid]: status }))}
+        onFinish={() => { /* user reviews then taps Save in the grid */ }}
+        batchName={selectedBatch?.name}
+      />
     </DashboardLayout>
   );
 }
