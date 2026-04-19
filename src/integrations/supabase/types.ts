@@ -68,9 +68,12 @@ export type Database = {
           date: string
           id: string
           institute_code: string
+          marked_at_client_ts: string | null
           marked_by: string | null
           present: boolean
           student_id: string
+          updated_at: string
+          updated_by: string | null
         }
         Insert: {
           batch_id: string
@@ -78,9 +81,12 @@ export type Database = {
           date?: string
           id?: string
           institute_code: string
+          marked_at_client_ts?: string | null
           marked_by?: string | null
           present?: boolean
           student_id: string
+          updated_at?: string
+          updated_by?: string | null
         }
         Update: {
           batch_id?: string
@@ -88,9 +94,12 @@ export type Database = {
           date?: string
           id?: string
           institute_code?: string
+          marked_at_client_ts?: string | null
           marked_by?: string | null
           present?: boolean
           student_id?: string
+          updated_at?: string
+          updated_by?: string | null
         }
         Relationships: [
           {
@@ -101,6 +110,48 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      attendance_audit: {
+        Row: {
+          attendance_id: string
+          batch_id: string
+          changed_at: string
+          changed_by: string | null
+          changed_by_name: string | null
+          date: string
+          id: string
+          institute_code: string
+          new_present: boolean
+          prev_present: boolean | null
+          student_id: string
+        }
+        Insert: {
+          attendance_id: string
+          batch_id: string
+          changed_at?: string
+          changed_by?: string | null
+          changed_by_name?: string | null
+          date: string
+          id?: string
+          institute_code: string
+          new_present: boolean
+          prev_present?: boolean | null
+          student_id: string
+        }
+        Update: {
+          attendance_id?: string
+          batch_id?: string
+          changed_at?: string
+          changed_by?: string | null
+          changed_by_name?: string | null
+          date?: string
+          id?: string
+          institute_code?: string
+          new_present?: boolean
+          prev_present?: boolean | null
+          student_id?: string
+        }
+        Relationships: []
       }
       batch_applications: {
         Row: {
@@ -956,6 +1007,15 @@ export type Database = {
         Args: { _institute_code: string; _role: string }
         Returns: boolean
       }
+      get_attendance_last_marker: {
+        Args: { p_batch_id: string; p_date: string }
+        Returns: {
+          marked_at: string
+          marker_id: string
+          marker_name: string
+          rows_count: number
+        }[]
+      }
       get_batch_last_messages: {
         Args: { p_institute_code: string }
         Returns: {
@@ -983,11 +1043,16 @@ export type Database = {
         }
         Returns: string
       }
+      get_server_today: { Args: never; Returns: string }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
           _user_id: string
         }
+        Returns: boolean
+      }
+      is_day_off: {
+        Args: { p_batch_id: string; p_date: string }
         Returns: boolean
       }
       mark_batch_read: { Args: { p_batch_id: string }; Returns: undefined }
