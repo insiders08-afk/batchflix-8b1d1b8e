@@ -1,96 +1,80 @@
-## Claude's plan is mostly accurate but has **3 stale claims** I verified against the live code, plus the phasing under-weights the highest-leverage work. Here's my reviewed, corrected plan.
+# Attendance — Production-Grade Audit & Fix Plan
 
-## Verification of Claude's Claims
+## Files in scope (scanned)
 
-
-| Claude's Claim                                        | Reality in Codebase                                                                                                                                                                                            | Verdict                                 |
-| ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
-| Gap 3: Optimistic UI missing in chats                 | Already implemented — `useDirectMessages.ts` L286-289 and `BatchWorkspace.tsx` L607-609 both do `optimistic-${Date.now()}` with reconciliation, and `DMConversation.tsx` L541 shows the `Loader2` pending icon | ❌ **Stale — already done last session** |
-| Gap 8: Duplicate Apple meta tag + no splash           | Confirmed — `index.html` L30 and L37 both set `apple-mobile-web-app-status-bar-style`; no `apple-touch-startup-image` links exist                                                                              | ✅ Valid                                 |
-| "safe-area-inset needs verification"                  | Already applied in `BottomNav.tsx` L53; sidebar uses `pb-24` per memory                                                                                                                                        | ⚠️ Partial — verify other surfaces only |
-| Gap 11: `/admin/batch-applications` → wrong component | Confirmed L106 — points to `AdminApprovals`                                                                                                                                                                    | ✅ Valid bug                             |
-| Everything in Part 2 (✅ Done)                         | Spot-checked — accurate                                                                                                                                                                                        | ✅                                       |
-
-
-So the **real remaining gaps** are smaller than Claude's plan suggests. Phase 2 (3 days budgeted for optimistic UI) is already complete.
-
-## Revised Final Plan — Listwise
-
-### Phase 1 — Offline Visibility & Media (1 day) 🔴 Highest user impact
-
-**1.1 Cache Supabase Storage in `sw.ts**`
-Add a `CacheFirst` route for `*.supabase.co/storage/v1/object/public/*` (30-day expiry, 60-entry cap). Fixes broken avatars/attachments in offline chats. **5-line addition.**
-
-**1.2 Online/Offline Hook + Banner**
-Create `src/hooks/use-online-status.ts` (wraps `navigator.onLine` + `online`/`offline` events). Create `src/components/OfflineBanner.tsx` — slim amber bar: *"You're offline — messages will sync when reconnected."* Mount once inside `DashboardLayout.tsx` so all role dashboards show it.
-
-**1.3 Manifest icon fix**
-Add `purpose: "maskable"` to the 192×192 icon in `vite.config.ts` (Android 12+ adaptive icon).
-
-**1.4 Fix duplicate iOS meta tag**
-Delete `index.html` L37 (duplicate of L30).
-
-**1.5 Bug fix (out of PWA scope but free)**
-`App.tsx` L106: route `/admin/batch-applications` → `<AdminBatchApplications />` (currently points to AdminApprovals).
+**Pages**: `AdminAttendance.tsx`, `TeacherAttendance.tsx`, `StudentAttendance.tsx`, `ParentDashboard.tsx`, `BatchWorkspace.tsx` (attendance tab + saveAttendance).
+**Components**: `AttendanceCalendarView.tsx`, `AttendanceAnalyticsModal.tsx`.
+**Libs/hooks**: `lib/batchTiming.ts`, `lib/offlineQueue.ts`, `hooks/useOfflineQueue.ts`, `components/SyncIndicator.tsx`.
+**Routing/Layout**: `App.tsx`, `DashboardLayout.tsx`, `lib/prefetchRoutes.ts`.
+**DB**: `attendance` table + unique index `(batch_id, student_id, date)` ✅ already in place.
 
 ---
 
-### Phase 2 — Smart Loading (1 day) 🟡 Performance polish
+## A. Bugs (must-fix)
 
-**2.1 Role-aware prefetch**
-`prefetchRoutes.ts` currently prefetches every role's chunks for everyone. Refactor to read `authUser.userRole` from `localStorage` (`bh_auth_cache`) and prefetch only that role's hub + dashboard. Saves ~100-200KB on first paint per non-matching role.
-
-**2.2 Last-route persistence**
-On every route change, write `localStorage["bh_last_route"]`. In `Index.tsx`, if `authUser` exists and last route is a dashboard route, redirect immediately (skips landing flash for returning users — matches native cold-open).
-
-**2.3 Skeleton fallbacks for `Suspense**`
-Replace the generic spinner in `App.tsx` with 3 lightweight skeletons (`ChatHubSkeleton`, `DashboardSkeleton`, `ChatRoomSkeleton`) chosen by route prefix. Single shared file `src/components/skeletons/RouteSkeletons.tsx`.
-
-**2.4 Defer chatCache writes**
-Wrap `saveCachedMessages`/`saveHubCache` setItem in `setTimeout(fn, 0)` so writes don't block the message-render frame.
+1. **Teacher inserts a row for every student even when "Not taken"** — `TeacherAttendance.loadBatchData` defaults `attMap[uid] = "present"` (line 177) for students with no DB record. If the teacher never opens the page but autosaves (or hits "Save" by reflex), those students get marked present. Admin page already fixed this (leaves undefined). Apply same fix to Teacher + BatchWorkspace.
+2. `**enrolledIds.in("none")` SQL hack on Teacher** (line 174) — sends a literal `"none"` string into a UUID column → "invalid input syntax for type uuid" on empty batches. Mirror Admin's early-return guard.
+3. **Admin "All Absent" before any DB record exists is a destructive default** — combined with bug #1 means switching batches mid-day can flip already-saved present students. Need confirmation modal if `Object.keys(attendance).length === 0` and saving.
+4. `**getMyInstituteCode()` typo** in code comments (`get my_institute_code` with space) — actual call is correct, but fragile. Cosmetic; flagging only.
+5. `**new Date(r.date)` in StudentAttendance heatmap** parses YYYY-MM-DD as UTC midnight → in IST timezone, `getDate()` returns the correct day, but `getMonth()` can shift on edge dates near month-end if user is in a westward TZ. Use `dateKeyToLocalDate()` everywhere (already used in CalendarView).
+6. **Optimistic cache write does not include `marked_by`/`institute_code**`, so when offline and the queue replays it inserts with correct fields, but the local cache UI shows stale data until next refetch.
 
 ---
 
-### Phase 3 — Final Hardening (½ day) 🟢 Demo polish
+## B. UX Barriers
 
-**3.1 SW update toast**
-In `main.tsx`, listen for the `vite-plugin-pwa` `onNeedRefresh` event and show a Sonner toast: *"Update available — tap to refresh."* One-tap calls `updateSW()`.
-
-**3.2 Apple splash screens**
-Add 5 `<link rel="apple-touch-startup-image">` tags in `index.html` for iPhone 15/14/13/SE/Pro Max resolutions. Pre-generated PNGs go in `public/icons/splash/`.
-
-**3.3 Offline 404 fallback**
-In `sw.ts`, add a `setCatchHandler` that returns the cached `index.html` (SPA fallback) for navigation requests when offline. Avoids the browser's offline-dino page on deep-link shares.
-
-**3.4 Safe-area audit**
-Verify `env(safe-area-inset-bottom)` on the chat input bars in `BatchWorkspace.tsx` and `DMConversation.tsx` (already on `BottomNav.tsx`).
+1. **No "saved by whom/when last" phrase**
+2. **No "unsaved changes" guard** — switching batch dropdown or navigating away silently loses marks. must a mark ' 'you have **unsaved changes**''
+3. **Day-off banner duplication** — comment says "duplicate removed" but logic still re-queries inside `onDayOffChange` callback inline → 2 round-trips per day-off toggle.
+4. **Save button says "Save Attendance" even when nothing changed** — should detect dirty state and disable. like for very first attendance marking it must show save attendance and then update attendance while editing attendance with 'you have **unsaved changes**' until saved/updated.
+5. **No autosave** — teachers in 2-hour classes lose marks if they accidentally close tab.
+6. take all absent by default, in tab above marking attendance list.
+7. attendance locked is also at below of marking attendance list, no need there as we already have it below batch name and timings.
 
 ---
 
-### Explicitly DROPPED from Claude's plan
+## C. Real-World Coaching-Center Edge Cases
 
-- ❌ **Phase 2 (Optimistic UI)** — already shipped in last 2 sessions. Don't re-do.
-- ❌ **IndexedDB migration** — Claude himself flagged this as overkill at current scale; localStorage cap of 50 msgs/convo is fine until 10k+ DAU.
-
----
-
-### Technical Notes
-
-- All changes are additive — no schema, no Supabase migrations, no breaking API changes.
-- `vite-plugin-pwa` already in `injectManifest` mode, so adding routes in `sw.ts` is straightforward.
-- Total scope: **~2.5 days of focused work** (vs. Claude's 6-8 day estimate, since Phase 2 is done).
-- Verification after each phase mirrors Claude's plan — airplane-mode test, throttled-3G test, deploy-while-open test.
+1. **60 students in 2 minutes** — current `motion.div` per row with 0.02s stagger = 1.2s animation lag for 60. Disable framer animation when `students.length > 30`.
+2. **Switching batch mid-session** — no autosave + no dirty-prompt → data loss. Must commit on dropdown change.
+3. **Concurrent admin+teacher** — see bug A6/A7. Must show "marked by Teacher Ravi at 4:32 PM — overwrite?" before saving.
+4. **Power loss mid-save** — if 30 of 60 rows committed before crash, on reload only those 30 are in `attendance`, the other 30 are blank. Current code maps "no row = no mark", which is correct, but UX should say "Partial save detected — 30/60 marked, please review".
+5. **Cross-batch contamination** — RLS enforces `institute_code`, but **no RLS rule prevents an admin from marking a student in batch X using batch Y's id**. The unique index is on `(batch_id, student_id, date)`, so a student enrolled in two batches gets two separate rows, which is correct. But the UI should refuse if `student_id` is not in `students_batches` for that batch (sanity check). Currently no such guard.
+6. **Holiday / strike / sudden cancellation** — currently can only mark day-off in advance via calendar. Need "cancel today's class" button on Today's attendance panel.
 
 ---
 
-### Order of Approval Decisions Needed
+## D. Offline / PWA Architecture Gaps
 
-1. Confirm we skip Claude's Phase 2 (optimistic UI) since it's already live.
-2. Confirm we want the `/admin/batch-applications` route bug fixed in this batch (vs separate PR).
-3. Confirm Apple splash PNGs — I can generate them from the existing 512px icon, or you upload custom branded ones. 
+1. **No `bh_attendance_today_admin_<batchId>` cache eviction** — caches accumulate forever. Need TTL (delete if `cachedAt > 24h old`) and a daily cleanup at boot.
+2. **Cache key collisions across institutes** — `bh_attendance_today_<batchId>` is unique per batch, but on shared device (one tablet, multiple teachers) a logout doesn't clear other-user caches. Already noted in Phase 1 sessionPersistence — but attendance caches must also be purged on logout.
+3. **Service-worker doesn't precache the attendance route's data fetch** — only the JS chunk. So on first offline boot of a route, even with SW cache hit on the chunk, the page still tries the network. Acceptable since localStorage cache covers it, but document it.
+4. **Offline queue replay fires on `online` event only** — `visibilitychange` is added, but mobile Safari often suppresses both for 30s after wake. Add a manual "Retry sync" button in SyncIndicator.
+5. **Queue task has no `institute_code` validation on replay** — if the user switches institutes (multi-role) before the queue drains, the task replays under the wrong RLS context. Need to capture `auth.uid()` at enqueue and abort if mismatched on replay.
+6. **No conflict resolution on replay** — if teacher marks offline at 4 PM, admin overrides online at 5 PM, then teacher comes online at 6 PM, the teacher's queue replays and overwrites admin's correction. Need `If-Match` style guard via `updated_at` or just timestamp the queue payload and let server-side trigger reject older writes.
+7. **Queue MAX_ATTEMPTS=5 silently drops** — for attendance this means lost data. Move dropped tasks to a `bh_offline_queue_dead_letter` and surface in SyncIndicator with "X failed, tap to view".
 
-&nbsp;
+---
 
-&nbsp;
+## E. Cross-Institute / Cross-Batch Isolation
 
-review once over against the context of whole codebase and app workflows.
+
+| Vector                 | Current state                                                     | Risk                                                                          |
+| ---------------------- | ----------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| RLS on `attendance`    | `institute_code = get_my_institute_code()`                        | ✅ safe                                                                        |
+| Cache keys             | per `batchId` only                                                | ⚠️ Shared device leakage between users — purge on logout                      |
+| Offline queue          | global `bh_offline_queue_v1`                                      | ⚠️ Replays under whoever is logged in. Tag with `userId` and skip if mismatch |
+| Day-off announcements  | per `batch_id`                                                    | ✅ safe                                                                        |
+| Student profile lookup | `.in("user_id", ids)` filtered through RLS `institute_code` match | ✅ safe                                                                        |
+| `marked_by` field      | `auth.uid()`                                                      | ✅ safe                                                                        |
+
+
+---
+
+## F. Improvements / Features for Ground-Level Adaptation
+
+1. **One-tap "Repeat yesterday's attendance"** — in tier-2/3 tutoring 90% of the class is the same regulars. Pre-populate from yesterday's record with a "Use yesterday" button.
+2. **Roll-call mode** — full-screen sequential student photo + Present/Absent buttons, optimised for fast tap on a phone held in one hand. add 'expand button ' in header of attendance marking list at left of date.
+
+---
+
