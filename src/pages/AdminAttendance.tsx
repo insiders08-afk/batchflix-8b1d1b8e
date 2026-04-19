@@ -416,11 +416,21 @@ export default function AdminAttendance() {
           </div>
         </div>
 
-        {/* Batch schedule info + status notice */}
+        {/* Batch schedule info + inline lock chip when locked */}
         {selectedBatch?.schedule && (() => {
           const t = (() => { try { const p = JSON.parse(selectedBatch.schedule!); return p.days?.length ? p : null; } catch { return null; } })();
           const todayName = new Date().toLocaleDateString("en-IN", { weekday: "long" });
           const fmt = (h: number, m: number, ap: string) => `${h}:${String(m).padStart(2, "0")} ${ap}`;
+          // Compact lock label — keeps the schedule row single-line and informative
+          const lockLabel = todayIsDayOff
+            ? "Day off"
+            : !attEditable
+              ? (attLockReason.startsWith("No class")
+                  ? `No class today (${todayName})`
+                  : attLockReason.startsWith("Attendance opens")
+                    ? `Opens ${openTime}`
+                    : `Closed at ${lockTime}`)
+              : null;
           return (
             <div className="space-y-1.5">
               {t && (
@@ -430,25 +440,18 @@ export default function AdminAttendance() {
                   <span className="text-muted-foreground">·</span>
                   <span className="text-muted-foreground">{fmt(t.startHour, t.startMinute, t.startAmPm)} – {fmt(t.endHour, t.endMinute, t.endAmPm)}</span>
                   <span className="text-muted-foreground">· Today: <span className="font-semibold text-foreground">{todayName}</span></span>
+                  {lockLabel && (
+                    <span className="ml-auto inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-danger/10 text-danger border border-danger/25 font-semibold">
+                      <Lock className="w-3 h-3" /> {lockLabel}
+                    </span>
+                  )}
                 </div>
               )}
-              {/* Day-off always wins — shown all day, no timing info shown */}
-              {todayIsDayOff ? (
-                <div className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs border bg-warning/8 border-warning/25 text-warning">
-                  <Lock className="w-3.5 h-3.5 flex-shrink-0" />
-                  <span className="font-semibold">Window closed — Day Off for this batch today.</span>
-                </div>
-              ) : (
-                <div className={cn(
-                  "flex flex-wrap items-center gap-1.5 px-3 py-2 rounded-lg text-xs border",
-                  attEditable ? "bg-success/5 border-success/20 text-success" : "bg-warning/5 border-warning/20 text-warning"
-                )}>
-                  {attEditable ? <CheckCircle2 className="w-3.5 h-3.5 flex-shrink-0" /> : <Lock className="w-3.5 h-3.5 flex-shrink-0" />}
-                  {attEditable ? (
-                    <span>Attendance opens at <span className="font-semibold">{openTime}</span> (class start time). Locks at <span className="font-semibold">{lockTime}</span></span>
-                  ) : (
-                    <span>{attLockReason}</span>
-                  )}
+              {/* Actionable info row only when unlocked — shows when window will close */}
+              {!isLocked && (
+                <div className="flex flex-wrap items-center gap-1.5 px-3 py-2 rounded-lg text-xs border bg-success/5 border-success/20 text-success">
+                  <CheckCircle2 className="w-3.5 h-3.5 flex-shrink-0" />
+                  <span>Open now · locks at <span className="font-semibold">{lockTime}</span></span>
                 </div>
               )}
             </div>
