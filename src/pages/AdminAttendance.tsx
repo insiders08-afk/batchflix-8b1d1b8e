@@ -107,6 +107,8 @@ export default function AdminAttendance() {
       setStudents(cached.students);
       setAttendance(cached.attendance);
       setHistory(cached.history);
+      setSavedBaseline(cached.attendance);
+      setHasEverSaved(Object.keys(cached.attendance).length > 0);
       setLoadingStudents(false);
     }
 
@@ -142,6 +144,8 @@ export default function AdminAttendance() {
         (todayAtt || []).forEach(a => { attMap[a.student_id] = a.present ? "present" : "absent"; });
       }
       setAttendance(attMap);
+      setSavedBaseline(attMap);
+      setHasEverSaved(Object.keys(attMap).length > 0);
 
       const { data: histData } = await supabase.from("attendance").select("date, present")
         .eq("batch_id", batchId).neq("date", today).order("date", { ascending: false }).limit(200);
