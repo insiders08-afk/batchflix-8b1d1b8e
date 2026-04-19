@@ -139,9 +139,11 @@ export default function StudentAttendance() {
 
   const calMap: Record<number, boolean | null> = {};
   filteredRecords.forEach(r => {
-    const d = new Date(r.date);
-    if (d.getFullYear() === calYear && d.getMonth() === calMonth) {
-      calMap[d.getDate()] = r.present;
+    // Bug A5 fix: parse YYYY-MM-DD as local-time to avoid UTC-offset day shifts
+    const [y, m, d] = r.date.split("-").map(Number);
+    const dt = new Date(y, m - 1, d);
+    if (dt.getFullYear() === calYear && dt.getMonth() === calMonth) {
+      calMap[dt.getDate()] = r.present;
     }
   });
 
