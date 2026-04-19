@@ -2,40 +2,21 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import { useParams, useNavigate } from "react-router-dom";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Label } from "@/components/ui/label";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Switch } from "@/components/ui/switch";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   MessageSquare,
-  Megaphone,
-  CalendarCheck,
-  FlaskConical,
-  BookOpen,
-  Trophy,
   ArrowLeft,
   Send,
-  Plus,
-  CheckCircle2,
-  XCircle,
-  Clock,
-  Users,
   Loader2,
-  Star,
-  Bell,
   Paperclip,
   FileText,
   Image,
   X,
   Download,
-  BookMarked,
-  Eye,
-  Link as LinkIcon,
   ThumbsUp,
   ThumbsDown,
   ArrowDown,
@@ -51,11 +32,12 @@ import { useAuth } from "@/contexts/AuthContext";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { sendPushNotification, getBatchStudentIds } from "@/lib/pushNotifications";
-import { formatChatDate, getMessagePreview, timeAgo } from "@/lib/chatUtils";
+import { formatChatDate, getMessagePreview } from "@/lib/chatUtils";
 import { saveCachedMessages, loadCachedMessages } from "@/lib/chatCache";
 import { enqueueTask } from "@/lib/offlineQueue";
 
 const BATCH_MSG_PAGE_SIZE = 50;
+const MAX_FILE_SIZE_MB = 10;
 
 interface BatchInfo {
   id: string;
@@ -78,38 +60,10 @@ interface ChatMessage {
   file_type?: string | null;
   isSelf?: boolean;
   reply_to_id?: string | null;
-  reactions?: Record<string, string[]>; // emoji -> user_ids[]
+  reactions?: Record<string, string[]>;
   is_deleted?: boolean;
   is_edited?: boolean;
 }
-
-interface Student {
-  id: string;
-  user_id: string;
-  full_name: string;
-  present?: boolean;
-}
-
-interface Announcement {
-  id: string;
-  title: string;
-  content: string;
-  posted_by_name: string | null;
-  created_at: string;
-  type: string | null;
-  notify_push?: boolean;
-}
-
-interface TestScore {
-  id: string;
-  test_name: string;
-  test_date: string;
-  score: number;
-  max_marks: number;
-  student_id: string;
-}
-
-const MAX_FILE_SIZE_MB = 10;
 
 function sortBatchMessages(messages: ChatMessage[]) {
   return [...messages].sort(
@@ -141,7 +95,6 @@ function mergeFetchedBatchMessages(fetched: ChatMessage[], existing: ChatMessage
       local.id.startsWith("optimistic-") &&
       !fetched.some((incoming) => matchesOptimisticBatchMessage(local, incoming)),
   );
-
   return sortBatchMessages([...fetched, ...pendingOptimistic]);
 }
 
@@ -163,7 +116,6 @@ export default function BatchWorkspace() {
   const currentUserRole = authUser?.userRole ?? "student";
   const [studentCount, setStudentCount] = useState(0);
   const [criticalLoading, setCriticalLoading] = useState(true);
-  const [tabsLoading, setTabsLoading] = useState(true);
   const [chatChannelStatus, setChatChannelStatus] = useState<string>("CONNECTING");
 
   // Chat
@@ -191,15 +143,13 @@ export default function BatchWorkspace() {
     };
   }, []);
 
-  // HIGH-01: Mark batch as read on mount and tab focus
-  // Also optimistically zero the unread count in the hub cache
+  // Mark batch as read on mount and tab focus + zero unread badge in hub cache
   const queryClient = useQueryClient();
   useEffect(() => {
     if (!batchId || !currentUserId) return;
     const markRead = async () => {
       if (document.visibilityState === "visible") {
         await supabase.rpc("mark_batch_read", { p_batch_id: batchId });
-        // Optimistically zero the unread count so hub shows 0 immediately on back-nav
         const ic = authUser?.instituteCode ?? "";
         if (ic) {
           queryClient.setQueryData<Record<string, number>>(
@@ -220,39 +170,6 @@ export default function BatchWorkspace() {
     return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
   }, [batchId, currentUserId, authUser?.instituteCode, queryClient]);
 
-  // Attendance
-  const [students, setStudents] = useState<Student[]>([]);
-  const [attendance, setAttendance] = useState<Record<string, boolean>>({});
-  const [savingAttendance, setSavingAttendance] = useState(false);
-
-  // Announcements
-  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
-  const [annDialog, setAnnDialog] = useState(false);
-  const [newAnn, setNewAnn] = useState({ title: "", content: "", type: "general", notifyPush: false });
-  const [savingAnn, setSavingAnn] = useState(false);
-
-  // Tests
-  const [tests, setTests] = useState<TestScore[]>([]);
-
-  // DPP / Homework
-  const [dppItems, setDppItems] = useState<
-    {
-      id: string;
-      title: string;
-      description: string | null;
-      file_url: string | null;
-      file_name: string | null;
-      link_url: string | null;
-      posted_by_name: string;
-      created_at: string;
-    }[]
-  >([]);
-  const [dppDialog, setDppDialog] = useState(false);
-  const [newDpp, setNewDpp] = useState({ title: "", description: "", link_url: "" });
-  const [savingDpp, setSavingDpp] = useState(false);
-  const [dppFile, setDppFile] = useState<File | null>(null);
-  const dppFileRef = useRef<HTMLInputElement>(null);
-
   const handleBack = () => {
     if (window.history.length > 2) {
       navigate(-1);
@@ -261,12 +178,11 @@ export default function BatchWorkspace() {
     }
   };
 
-  // Load initial data — split into critical + lazy
+  // Load batch info + initial messages
   useEffect(() => {
     if (!batchId || !currentUserId) return;
     const init = async () => {
       try {
-        // ── Stage 1: Critical path — batch info + messages ──
         const [batchRes, countRes, msgsRes] = await Promise.all([
           supabase.from("batches").select("*").eq("id", batchId).single(),
           supabase.from("students_batches").select("id", { count: "exact" }).eq("batch_id", batchId),
@@ -286,44 +202,6 @@ export default function BatchWorkspace() {
           });
           setHasMoreMsgs(msgsRes.data.length === BATCH_MSG_PAGE_SIZE);
         }
-        setCriticalLoading(false); // ← UI renders HERE — user sees chat
-
-        // ── Stage 2: Lazy (fire-and-forget) ──
-        const lazyLoad = async () => {
-          const [enrollRes, annsRes, testRes, dppRes] = await Promise.all([
-            supabase.from("students_batches").select("student_id").eq("batch_id", batchId),
-            supabase.from("announcements").select("*").eq("batch_id", batchId).order("created_at", { ascending: false }),
-            supabase.from("test_scores").select("*").eq("batch_id", batchId).order("test_date", { ascending: false }),
-            supabase.from("homeworks").select("id, title, description, file_url, file_name, link_url, teacher_name, created_at").eq("batch_id", batchId).order("created_at", { ascending: false }),
-          ]);
-
-          setAnnouncements(annsRes.data || []);
-          setTests(testRes.data || []);
-          setDppItems((dppRes.data || []).map((d) => ({ ...d, posted_by_name: d.teacher_name ?? "" })));
-
-          const enrollments = enrollRes.data;
-          if (enrollments && enrollments.length > 0) {
-            const ids = enrollments.map((e) => e.student_id);
-            const [studentProfilesRes, todayAttRes] = await Promise.all([
-              supabase.from("profiles").select("user_id, full_name").in("user_id", ids),
-              supabase.from("attendance").select("student_id, present").eq("batch_id", batchId).eq("date", new Date().toISOString().split("T")[0]).in("student_id", ids),
-            ]);
-
-            const mapped = (studentProfilesRes.data || []).map((s) => ({
-              id: s.user_id,
-              user_id: s.user_id,
-              full_name: s.full_name,
-            }));
-            setStudents(mapped);
-
-            const attMap: Record<string, boolean> = {};
-            mapped.forEach((s) => { attMap[s.id] = false; });
-            (todayAttRes.data || []).forEach((a) => { attMap[a.student_id] = a.present; });
-            setAttendance(attMap);
-          }
-          setTabsLoading(false);
-        };
-        lazyLoad(); // intentionally not awaited
       } catch (err) {
         console.error("[BatchWorkspace] init error:", err);
       } finally {
@@ -331,7 +209,7 @@ export default function BatchWorkspace() {
       }
     };
     init();
-  }, [batchId, currentUserId]);
+  }, [batchId, currentUserId, batchCacheKey]);
 
   // Load older batch messages (scroll-up pagination)
   const loadOlderBatchMessages = useCallback(async () => {
@@ -390,7 +268,6 @@ export default function BatchWorkspace() {
           });
         },
       )
-      // UX-04 fix: subscribe to UPDATE events so reactions sync in real-time
       .on(
         "postgres_changes",
         { event: "UPDATE", schema: "public", table: "batch_messages", filter: `batch_id=eq.${batchId}` },
@@ -400,9 +277,9 @@ export default function BatchWorkspace() {
           setMessages((prev) => {
             const next = prev.map((m) =>
               m.id === updated.id
-                ? { 
-                    ...m, 
-                    reactions: (updated.reactions ?? {}) as Record<string, string[]>, 
+                ? {
+                    ...m,
+                    reactions: (updated.reactions ?? {}) as Record<string, string[]>,
                     message: updated.message,
                     is_deleted: updated.is_deleted,
                     is_edited: updated.is_edited,
@@ -432,41 +309,16 @@ export default function BatchWorkspace() {
     };
   }, [batchId, currentUserId, batchCacheKey]);
 
-  // Realtime announcements subscription
-  useEffect(() => {
-    if (!batchId) return;
-    const channel = supabase
-      .channel(`batch-announcements-${batchId}`)
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "announcements", filter: `batch_id=eq.${batchId}` },
-        (payload) => {
-          const ann = payload.new as Announcement;
-          setAnnouncements((prev) => {
-            if (prev.some((a) => a.id === ann.id)) return prev;
-            return [ann, ...prev];
-          });
-        },
-      )
-      .subscribe();
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [batchId]);
-
   // Core scroll helper
-  const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
+  const scrollToBottom = useCallback((_behavior: ScrollBehavior = "smooth") => {
     const container = chatContainerRef.current;
     if (!container) return;
     container.scrollTop = container.scrollHeight;
-    // Also check button state after scrolling
     const distFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
     setShowScrollDown(distFromBottom > 100);
   }, []);
 
-  // After messages load for the first time, do a hard instant scroll to bottom.
-  // We also set up a ResizeObserver so that if images load and push the height
-  // down, we keep scrolling until stable (only if user hasn't manually scrolled).
+  // Initial-load scroll-to-bottom + ResizeObserver
   useEffect(() => {
     if (criticalLoading) return;
     if (messages.length === 0) return;
@@ -474,21 +326,16 @@ export default function BatchWorkspace() {
     const container = chatContainerRef.current;
     if (!container) return;
 
-    // Instant snap to bottom on initial load
     if (!initialScrollDone.current) {
       container.scrollTop = container.scrollHeight;
       initialScrollDone.current = true;
-      // After snap, check button state
       const distFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
       setShowScrollDown(distFromBottom > 100);
     }
 
-    // ResizeObserver: if content height grows (due to images) AND user is near bottom,
-    // keep scrolling so they stay at the bottom.
     const observer = new ResizeObserver(() => {
       const dist = container.scrollHeight - container.scrollTop - container.clientHeight;
       if (dist < 300) {
-        // User is near bottom — keep them there
         container.scrollTop = container.scrollHeight;
         setShowScrollDown(false);
       }
@@ -511,21 +358,19 @@ export default function BatchWorkspace() {
     };
   }, [criticalLoading, messages.length]);
 
-  // Auto-scroll logic for NEW incoming messages (realtime)
+  // Auto-scroll for incoming realtime messages
   const prevMsgCount = useRef(0);
   useEffect(() => {
     const newCount = messages.length;
-    if (!initialScrollDone.current) return; // Don't interfere with initial load
+    if (!initialScrollDone.current) return;
 
     if (newCount > prevMsgCount.current) {
       const container = chatContainerRef.current;
       if (container) {
         const dist = container.scrollHeight - container.scrollTop - container.clientHeight;
-        // If we are near bottom (threshold 300px), scroll to the new message
         if (dist < 300) {
           scrollToBottom("smooth");
         } else {
-          // User is scrolled up — show the "New Message" indicator
           setShowScrollDown(true);
         }
       }
@@ -533,13 +378,8 @@ export default function BatchWorkspace() {
     prevMsgCount.current = newCount;
   }, [messages, scrollToBottom]);
 
-  // ─── File upload helper ─────────────────────────────────────────────────────
-  // B-2/B-3: chat-files bucket is PUBLIC — use getPublicUrl for permanent URLs
   const uploadChatFile = async (file: File): Promise<{ url: string; name: string; type: string } | null> => {
-    if (!currentUserId) {
-      console.error("[upload] No currentUserId");
-      return null;
-    }
+    if (!currentUserId) return null;
     const ext = file.name.split(".").pop() || "bin";
     const mimeType = file.type || (ext === "jpg" || ext === "jpeg" ? "image/jpeg" : ext === "png" ? "image/png" : "application/octet-stream");
     const path = `${currentUserId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
@@ -547,14 +387,10 @@ export default function BatchWorkspace() {
       .from("chat-files")
       .upload(path, file, { contentType: mimeType, upsert: false });
     if (error) {
-      console.error("[upload]", error.message, error);
       toast({ title: "Upload error", description: error.message, variant: "destructive" });
       return null;
     }
-    // B-2: Use public URL since chat-files bucket is public — no expiry
-    const { data: publicData } = supabase.storage
-      .from("chat-files")
-      .getPublicUrl(path);
+    const { data: publicData } = supabase.storage.from("chat-files").getPublicUrl(path);
     return { url: publicData.publicUrl, name: file.name, type: mimeType };
   };
 
@@ -576,10 +412,7 @@ export default function BatchWorkspace() {
     if (editingMessage) {
       const { error } = await supabase
         .from("batch_messages")
-        .update({
-          message: chatInput.trim(),
-          is_edited: true,
-        })
+        .update({ message: chatInput.trim(), is_edited: true })
         .eq("id", editingMessage.id);
 
       if (!error) {
@@ -605,14 +438,12 @@ export default function BatchWorkspace() {
       }
     }
 
-    // HIGH-03: Optimistic send — show message immediately
     const optimisticId = `optimistic-${Date.now()}`;
     const optimisticMsg: ChatMessage = {
       id: optimisticId,
       sender_id: currentUserId,
       sender_name: currentUserName,
       sender_role: currentUserRole,
-      // LOW-03: Use consistent 📎 prefix for file-only messages
       message: chatInput.trim() || (fileData ? `📎 ${fileData.name}` : ""),
       created_at: new Date().toISOString(),
       file_url: fileData?.url ?? null,
@@ -631,7 +462,6 @@ export default function BatchWorkspace() {
     });
     scrollToBottom("smooth");
 
-    // ─── Offline path: queue text-only message and keep optimistic bubble ─
     const offline = typeof navigator !== "undefined" && !navigator.onLine;
     if (offline) {
       if (fileData) {
@@ -708,7 +538,6 @@ export default function BatchWorkspace() {
 
       const msgText = chatInput.trim() || `📎 ${fileData?.name || "File shared"}`;
 
-      // ─── Push rule: teacher/admin message → notify all students in batch ─
       if ((currentUserRole === "teacher" || currentUserRole === "admin") && batch) {
         const studentIds = await getBatchStudentIds(batchId!);
         if (studentIds.length > 0) {
@@ -722,7 +551,6 @@ export default function BatchWorkspace() {
         }
       }
 
-      // ─── Push rule: student message → notify teacher of batch ────────────
       if (currentUserRole === "student" && batch?.teacher_id) {
         sendPushNotification({
           institute_code: batch.institute_code,
@@ -743,7 +571,6 @@ export default function BatchWorkspace() {
     setSendingMsg(false);
   };
 
-  // B-18: Add reaction rollback on failure (matching DM hook pattern)
   const handleReaction = async (messageId: string, emoji: string) => {
     const msg = messages.find((m) => m.id === messageId);
     if (!msg) return;
@@ -752,11 +579,9 @@ export default function BatchWorkspace() {
     const users = currentReactions[emoji] || [];
     const hasReacted = users.includes(currentUserId);
 
-    let newUsers = hasReacted ? users.filter((id) => id !== currentUserId) : [...users, currentUserId];
-
+    const newUsers = hasReacted ? users.filter((id) => id !== currentUserId) : [...users, currentUserId];
     const newReactions = { ...currentReactions, [emoji]: newUsers };
 
-    // Optimistic update
     setMessages((prev) => prev.map((m) => (m.id === messageId ? { ...m, reactions: newReactions } : m)));
 
     const { error } = await supabase
@@ -766,7 +591,6 @@ export default function BatchWorkspace() {
 
     if (error) {
       toast({ title: "Error updating reaction", variant: "destructive" });
-      // B-18: Revert on failure
       setMessages((prev) => prev.map((m) => (m.id === messageId ? { ...m, reactions: currentReactions } : m)));
     }
   };
@@ -793,189 +617,9 @@ export default function BatchWorkspace() {
     return userIds.map((id) => {
       if (id === currentUserId) return "You";
       if (id === batch?.teacher_id) return batch.teacher_name || "Teacher";
-      const student = students.find((s) => s.user_id === id);
-      if (student) return student.full_name;
-      return "Unknown User";
+      return "Member";
     });
   };
-
-  const saveAttendance = async () => {
-    if (!batch) return;
-    setSavingAttendance(true);
-    const today = new Date().toISOString().split("T")[0];
-    const clientTs = new Date().toISOString();
-
-    // Bug A11 fix: only save students that were explicitly toggled. A boolean
-    // OR `false` would silently mark every untouched student Absent. We
-    // require at least one explicit mark and only persist those students.
-    const explicitlyMarked = students.filter((s) => attendance[s.id] !== undefined);
-    if (explicitlyMarked.length === 0) {
-      toast({
-        title: "Nothing to save",
-        description: "Tap Present/Absent next to at least one student first.",
-        variant: "destructive",
-      });
-      setSavingAttendance(false);
-      return;
-    }
-
-    const records = explicitlyMarked.map((s) => ({
-      student_id: s.user_id,
-      present: attendance[s.id] === true,
-    }));
-
-    // Offline → queue & toast
-    if (typeof navigator !== "undefined" && !navigator.onLine) {
-      enqueueTask({
-        type: "attendance",
-        payload: {
-          batch_id: batchId!,
-          institute_code: batch.institute_code,
-          date: today,
-          marked_by: currentUserId,
-          records,
-          client_ts: clientTs,
-        },
-      });
-      toast({ title: "📥 Saved offline", description: "Will sync when back online." });
-      setSavingAttendance(false);
-      return;
-    }
-
-    const rows = records.map((r) => ({
-      batch_id: batchId!,
-      institute_code: batch.institute_code,
-      date: today,
-      marked_by: currentUserId,
-      marked_at_client_ts: clientTs,
-      updated_by: currentUserId,
-      ...r,
-    }));
-
-    const { error } = await supabase.from("attendance").upsert(rows, {
-      onConflict: "batch_id,student_id,date",
-    });
-
-    if (error) {
-      // Fall back to queue on network error
-      if (/fetch|network/i.test(error.message)) {
-        enqueueTask({
-          type: "attendance",
-          payload: {
-            batch_id: batchId!,
-            institute_code: batch.institute_code,
-            date: today,
-            marked_by: currentUserId,
-            records,
-            client_ts: clientTs,
-          },
-        });
-        toast({ title: "📥 Saved offline", description: "Will sync when back online." });
-      } else {
-        toast({ title: "Error saving attendance", description: error.message, variant: "destructive" });
-      }
-    } else {
-      toast({ title: "Attendance saved!", description: `Saved for ${today}` });
-    }
-    setSavingAttendance(false);
-  };
-
-  const postAnnouncement = async () => {
-    if (!newAnn.title || !newAnn.content || !batch) return;
-    setSavingAnn(true);
-    const { error } = await supabase.from("announcements").insert({
-      batch_id: batchId!,
-      institute_code: batch.institute_code,
-      posted_by: currentUserId,
-      posted_by_name: currentUserName,
-      title: newAnn.title,
-      content: newAnn.content,
-      type: newAnn.type,
-      notify_push: newAnn.notifyPush,
-    } as any);
-    if (error) {
-      toast({ title: "Error posting announcement", variant: "destructive" });
-    } else {
-      // ─── Push rule: announcement with notify toggle → batch students ─────
-      if (newAnn.notifyPush) {
-        sendPushNotification({
-          institute_code: batch.institute_code,
-          title: newAnn.title,
-          body: newAnn.content,
-          url: `/batch/${batchId}`,
-          batch_id: batchId!, // scoped to this batch's students
-        });
-      }
-      toast({ title: newAnn.notifyPush ? "Announcement posted with phone alert!" : "Announcement posted!" });
-      setAnnDialog(false);
-      setNewAnn({ title: "", content: "", type: "general", notifyPush: false });
-    }
-    setSavingAnn(false);
-  };
-
-  const postDpp = async () => {
-    if (!newDpp.title || !batch) return;
-    setSavingDpp(true);
-    try {
-      let file_url: string | null = null;
-      let file_name: string | null = null;
-      if (dppFile) {
-        // Enforce file size limit for DPP uploads
-        if (dppFile.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
-          toast({ title: `File too large (max ${MAX_FILE_SIZE_MB} MB)`, variant: "destructive" });
-          setSavingDpp(false);
-          return;
-        }
-        const ext = dppFile.name.split(".").pop() || "bin";
-        const path = `${currentUserId}/${Date.now()}-dpp.${ext}`;
-        const { error: upErr } = await supabase.storage.from("homework-files").upload(path, dppFile, { contentType: dppFile.type, upsert: false });
-        if (upErr) {
-          console.error("[dpp-upload]", upErr);
-          toast({ title: "File upload failed", description: upErr.message, variant: "destructive" });
-          setSavingDpp(false);
-          return;
-        }
-        // B-26/B-27: Use public URL since homework-files bucket is public — no expiry
-        const { data: publicData } = supabase.storage
-          .from("homework-files")
-          .getPublicUrl(path);
-        file_url = publicData.publicUrl;
-        file_name = dppFile.name;
-      }
-      const { error } = await supabase.from("homeworks").insert({
-        batch_id: batchId!,
-        institute_code: batch.institute_code,
-        teacher_id: currentUserId,
-        teacher_name: currentUserName,
-        title: newDpp.title,
-        description: newDpp.description || null,
-        file_url,
-        file_name,
-        link_url: newDpp.link_url || null,
-        type: "dpp",
-      });
-      if (error) {
-        toast({ title: "Error posting DPP", description: error.message, variant: "destructive" });
-      } else {
-        toast({ title: "DPP/Homework posted!" });
-        setDppDialog(false);
-        setNewDpp({ title: "", description: "", link_url: "" });
-        setDppFile(null);
-        const { data } = await supabase
-          .from("homeworks")
-          .select("id, title, description, file_url, file_name, link_url, teacher_name, created_at")
-          .eq("batch_id", batchId!)
-          .order("created_at", { ascending: false });
-        setDppItems((data || []).map((d) => ({ ...d, posted_by_name: d.teacher_name ?? "" })));
-      }
-    } finally {
-      setSavingDpp(false);
-    }
-  };
-
-  const presentCount = Object.values(attendance).filter(Boolean).length;
-
-  // B-29: formatChatDate and timeAgo are now imported from chatUtils
 
   const isImage = (type: string | null | undefined) => type?.startsWith("image/");
   const isPDF = (type: string | null | undefined) => type === "application/pdf";
@@ -1033,151 +677,123 @@ export default function BatchWorkspace() {
         </div>
       </header>
 
-      {/* Tabs */}
-      <Tabs defaultValue="chat" className="flex-1 flex flex-col overflow-hidden">
-        <div className="border-b border-border/50 bg-card px-4 flex-shrink-0">
-          <TabsList className="h-10 bg-transparent p-0 gap-1">
-            {[
-              { value: "chat", icon: MessageSquare, label: "Chat" },
-              { value: "announcements", icon: Megaphone, label: "Announcements" },
-              { value: "attendance", icon: CalendarCheck, label: "Attendance" },
-              { value: "tests", icon: FlaskConical, label: "Tests" },
-              { value: "dpp", icon: BookMarked, label: "DPP / HW" },
-              { value: "rankings", icon: Trophy, label: "Rankings" },
-            ].map((tab) => (
-              <TabsTrigger
-                key={tab.value}
-                value={tab.value}
-                className="data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none h-10 px-3 gap-1.5 text-xs font-medium data-[state=active]:bg-transparent data-[state=active]:shadow-none"
-              >
-                <tab.icon className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">{tab.label}</span>
-              </TabsTrigger>
-            ))}
-          </TabsList>
-        </div>
+      {/* Chat surface (full-screen, no tabs) */}
+      <div className="flex-1 flex flex-col relative overflow-hidden">
+        <div
+          ref={chatContainerRef}
+          className="flex-1 overflow-y-auto p-4 space-y-3"
+          onScroll={(e) => {
+            const target = e.currentTarget;
+            const distFromBottom = target.scrollHeight - target.scrollTop - target.clientHeight;
+            setShowScrollDown(distFromBottom > 100);
+            if (target.scrollTop < 60 && hasMoreMsgs && !loadingMoreMsgs) {
+              loadOlderBatchMessages();
+            }
+          }}
+        >
+          {loadingMoreMsgs && (
+            <div className="flex justify-center py-2">
+              <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+            </div>
+          )}
+          {!hasMoreMsgs && messages.length > 0 && (
+            <p className="text-center text-xs text-muted-foreground py-2">Beginning of conversation</p>
+          )}
 
-        <div className="flex-1 overflow-hidden">
-          {/* ── Chat ── */}
-          <TabsContent value="chat" className="h-full flex flex-col relative m-0 data-[state=inactive]:hidden">
-            <div
-              ref={chatContainerRef}
-              className="flex-1 overflow-y-auto p-4 space-y-3"
-              onScroll={(e) => {
-                const target = e.currentTarget;
-                const distFromBottom = target.scrollHeight - target.scrollTop - target.clientHeight;
-                setShowScrollDown(distFromBottom > 100);
-                // Load older messages when scrolled to top
-                if (target.scrollTop < 60 && hasMoreMsgs && !loadingMoreMsgs) {
-                  loadOlderBatchMessages();
+          {messages.length === 0 && (
+            <div className="text-center py-12 text-muted-foreground">
+              <MessageSquare className="w-8 h-8 mx-auto mb-2 opacity-30" />
+              <p className="text-sm">No messages yet. Start the conversation!</p>
+            </div>
+          )}
+
+          {messages.map((msg) => (
+            <motion.div
+              key={msg.id}
+              drag="x"
+              dragSnapToOrigin={true}
+              dragConstraints={msg.isSelf ? { left: 0, right: 70 } : { left: -70, right: 0 }}
+              dragElastic={0.15}
+              dragMomentum={false}
+              onDragEnd={(_, info) => {
+                if (msg.isSelf && info.offset.x > 60) {
+                  setReplyingTo(msg);
+                } else if (!msg.isSelf && info.offset.x < -60) {
+                  setReplyingTo(msg);
                 }
               }}
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              className={cn("flex gap-2.5 relative group", msg.isSelf ? "flex-row-reverse" : "flex-row")}
             >
-              {/* Load more indicator */}
-              {loadingMoreMsgs && (
-                <div className="flex justify-center py-2">
-                  <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
-                </div>
-              )}
-              {!hasMoreMsgs && messages.length > 0 && (
-                <p className="text-center text-xs text-muted-foreground py-2">Beginning of conversation</p>
-              )}
-
-              {messages.length === 0 && (
-                <div className="text-center py-12 text-muted-foreground">
-                  <MessageSquare className="w-8 h-8 mx-auto mb-2 opacity-30" />
-                  <p className="text-sm">No messages yet. Start the conversation!</p>
-                </div>
-              )}
-              {messages.map((msg) => (
-                  <motion.div
-                    key={msg.id}
-                    drag="x"
-                    dragSnapToOrigin={true}
-                    dragConstraints={msg.isSelf ? { left: 0, right: 70 } : { left: -70, right: 0 }}
-                    dragElastic={0.15}
-                    dragMomentum={false}
-                    onDragEnd={(_, info) => {
-                      if (msg.isSelf && info.offset.x > 60) {
-                        setReplyingTo(msg);
-                      } else if (!msg.isSelf && info.offset.x < -60) {
-                        setReplyingTo(msg);
-                      }
-                    }}
-                  initial={{ opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className={cn("flex gap-2.5 relative group", msg.isSelf ? "flex-row-reverse" : "flex-row")}
+              {!msg.isSelf && (
+                <div
+                  className={cn(
+                    "w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0 mt-0.5",
+                    msg.sender_role === "teacher" || msg.sender_role === "admin"
+                      ? "gradient-hero"
+                      : "bg-secondary border border-border",
+                  )}
                 >
-                  {!msg.isSelf && (
-                    <div
+                  <span
+                    className={
+                      msg.sender_role === "teacher" || msg.sender_role === "admin" ? "" : "text-foreground"
+                    }
+                  >
+                    {msg.sender_name
+                      .split(" ")
+                      .map((n: string) => n[0])
+                      .join("")
+                      .slice(0, 2)}
+                  </span>
+                </div>
+              )}
+              <div
+                className={cn(
+                  "max-w-xs lg:max-w-md",
+                  msg.isSelf ? "items-end" : "items-start",
+                  "flex flex-col gap-0.5",
+                )}
+              >
+                {!msg.isSelf && (
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs font-semibold">{msg.sender_name}</span>
+                    <Badge
+                      variant="secondary"
                       className={cn(
-                        "w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0 mt-0.5",
-                        msg.sender_role === "teacher" || msg.sender_role === "admin"
-                          ? "gradient-hero"
-                          : "bg-secondary border border-border",
+                        "text-xs px-1.5 py-0",
+                        (msg.sender_role === "teacher" || msg.sender_role === "admin") &&
+                          "bg-primary-light text-primary border-primary/20",
                       )}
                     >
-                      <span
-                        className={
-                          msg.sender_role === "teacher" || msg.sender_role === "admin" ? "" : "text-foreground"
-                        }
-                      >
-                        {msg.sender_name
-                          .split(" ")
-                          .map((n: string) => n[0])
-                          .join("")
-                          .slice(0, 2)}
-                      </span>
-                    </div>
+                      {msg.sender_role}
+                    </Badge>
+                  </div>
+                )}
+                <div
+                  className={cn(
+                    "rounded-xl px-3.5 py-2.5 text-sm leading-relaxed",
+                    msg.isSelf
+                      ? "gradient-hero text-white rounded-tr-sm"
+                      : "bg-card border border-border/60 rounded-tl-sm",
                   )}
-                  <div
-                    className={cn(
-                      "max-w-xs lg:max-w-md",
-                      msg.isSelf ? "items-end" : "items-start",
-                      "flex flex-col gap-0.5",
-                    )}
-                  >
-                    {!msg.isSelf && (
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-xs font-semibold">{msg.sender_name}</span>
-                        <Badge
-                          variant="secondary"
+                >
+                  {msg.is_deleted ? (
+                    <div className="italic text-muted-foreground flex items-center gap-1.5 opacity-80">
+                      <Trash2 className="w-3.5 h-3.5" /> This message was deleted
+                    </div>
+                  ) : (
+                    <>
+                      {msg.reply_to_id && (
+                        <div
                           className={cn(
-                            "text-xs px-1.5 py-0",
-                            (msg.sender_role === "teacher" || msg.sender_role === "admin") &&
-                              "bg-primary-light text-primary border-primary/20",
+                            "mb-2 p-2 rounded-lg border-l-4 bg-black/5 text-xs truncate",
+                            msg.isSelf ? "border-white/40 text-white/90" : "border-primary/40 text-muted-foreground",
                           )}
                         >
-                          {msg.sender_role}
-                        </Badge>
-                      </div>
-                    )}
-                    <div
-                      className={cn(
-                        "rounded-xl px-3.5 py-2.5 text-sm leading-relaxed",
-                        msg.isSelf
-                          ? "gradient-hero text-white rounded-tr-sm"
-                          : "bg-card border border-border/60 rounded-tl-sm",
-                      )}
-                    >
-                      {msg.is_deleted ? (
-                        <div className="italic text-muted-foreground flex items-center gap-1.5 opacity-80">
-                          <Trash2 className="w-3.5 h-3.5" /> This message was deleted
+                          {getMessagePreview(messages.find((m) => m.id === msg.reply_to_id) || {})}
                         </div>
-                      ) : (
-                        <>
-                          {/* Reply reference */}
-                          {msg.reply_to_id && (
-                            <div
-                              className={cn(
-                                "mb-2 p-2 rounded-lg border-l-4 bg-black/5 text-xs truncate",
-                                msg.isSelf ? "border-white/40 text-white/90" : "border-primary/40 text-muted-foreground",
-                              )}
-                            >
-                              {getMessagePreview(messages.find((m) => m.id === msg.reply_to_id) || {})}
-                            </div>
-                          )}
-                      {/* File attachment */}
+                      )}
                       {msg.file_url && (
                         <div className="mb-1.5">
                           {isImage(msg.file_type) ? (
@@ -1185,11 +801,10 @@ export default function BatchWorkspace() {
                               <img
                                 src={msg.file_url}
                                 alt={msg.file_name || "image"}
-                                 className="max-w-[200px] max-h-[160px] rounded-lg object-cover border border-white/20"
-                                 loading="lazy"
-                                 width={200}
-                                 height={160}
-                                // When image loads it shifts layout — scroll to keep at bottom if user was there
+                                className="max-w-[200px] max-h-[160px] rounded-lg object-cover border border-white/20"
+                                loading="lazy"
+                                width={200}
+                                height={160}
                                 onLoad={() => {
                                   const container = chatContainerRef.current;
                                   if (!container) return;
@@ -1215,738 +830,277 @@ export default function BatchWorkspace() {
                               )}
                               <span className="truncate max-w-[140px]">{msg.file_name || "Download file"}</span>
                             </a>
-                      )}
+                          )}
                         </div>
                       )}
-                      {/* B-16: Removed duplicate (edited) indicator — only shown in timestamp row */}
                       {msg.message && msg.message !== msg.file_name && (
                         <span>{msg.message}</span>
                       )}
-                        </>
-                      )}
-                    </div>
-                    {!msg.is_deleted && msg.isSelf && (
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon" className="w-5 h-5 absolute right-2 top-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <MoreVertical className="w-3 h-3 text-current opacity-80" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-32">
-                          {new Date(msg.created_at).getTime() > Date.now() - 20 * 60 * 1000 && !msg.file_url && (
-                             <DropdownMenuItem onClick={() => { setEditingMessage(msg); setChatInput(msg.message); setTimeout(() => inputRef.current?.focus(), 50); }}>
-                               <Edit2 className="w-4 h-4 mr-2" /> Edit
-                             </DropdownMenuItem>
-                          )}
-                          <DropdownMenuItem className="text-danger focus:text-danger" onClick={() => setMessageToDelete(msg.id)}>
-                            <Trash2 className="w-4 h-4 mr-2" /> Delete
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    )}
-                    <div className="flex items-center gap-3 mt-1 px-1">
-                      <span className="text-[10px] text-muted-foreground flex items-center gap-1">
-                        {formatChatDate(msg.created_at)}
-                        {msg.is_edited && <span className="italic opacity-70">(Edited)</span>}
-                      </span>
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => handleReaction(msg.id, "👍")}
-                          className={cn(
-                            "flex items-center gap-1 p-1 rounded-md transition-colors hover:bg-muted",
-                            msg.reactions?.["👍"]?.includes(currentUserId) && "text-primary bg-primary-light/30",
-                          )}
-                        >
-                          <ThumbsUp className="w-3 h-3" />
-                          {msg.reactions?.["👍"]?.length > 0 && (
-                            <span className="text-[10px] font-bold">{msg.reactions["👍"].length}</span>
-                          )}
-                        </button>
-                        <button
-                          onClick={() => handleReaction(msg.id, "👎")}
-                          className={cn(
-                            "flex items-center gap-1 p-1 rounded-md transition-colors hover:bg-muted",
-                            msg.reactions?.["👎"]?.includes(currentUserId) && "text-danger bg-danger-light/30",
-                          )}
-                        >
-                          <ThumbsDown className="w-3 h-3" />
-                          {msg.reactions?.["👎"]?.length > 0 && (
-                            <span className="text-[10px] font-bold">{msg.reactions["👎"].length}</span>
-                          )}
-                        </button>
-                        {(Object.keys(msg.reactions || {}).reduce((acc, cur) => acc + (msg.reactions?.[cur]?.length || 0), 0) > 0) && (
-                          <button
-                            onClick={() => setReactionsViewerMsg(msg)}
-                            className="text-[10px] font-semibold text-primary hover:underline ml-1"
-                          >
-                            See
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </motion.div>
-              ))}
-              <div ref={chatEndRef} />
-            </div>
-
-            {/* Reactions Viewer Dialog */}
-            {reactionsViewerMsg && (
-              <Dialog open={!!reactionsViewerMsg} onOpenChange={(open) => !open && setReactionsViewerMsg(null)}>
-                <DialogContent className="sm:max-w-xs">
-                  <DialogHeader>
-                    <DialogTitle className="font-display">Reactions</DialogTitle>
-                  </DialogHeader>
-                  <div className="space-y-4 pt-2 max-h-[60vh] overflow-y-auto">
-                    {["👍", "👎"].map((emoji) => {
-                      const userIds = reactionsViewerMsg.reactions?.[emoji] || [];
-                      if (userIds.length === 0) return null;
-                      const names = resolveReactorNames(userIds);
-                      return (
-                        <div key={emoji} className="space-y-2">
-                          <h4 className="text-sm font-semibold flex items-center gap-2">
-                            <span>{emoji}</span>
-                            <Badge variant="secondary" className="px-1.5 py-0 min-w-5 justify-center">{userIds.length}</Badge>
-                          </h4>
-                          <div className="space-y-1.5 pl-2 border-l-2 border-border/50">
-                            {names.map((name, i) => (
-                              <p key={userIds[i] || i} className="text-sm">{name}</p>
-                            ))}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </DialogContent>
-              </Dialog>
-            )}
-
-            {/* Delete Confirmation Dialog */}
-            <AlertDialog open={!!messageToDelete} onOpenChange={(open) => !open && setMessageToDelete(null)}>
-              <AlertDialogContent className="sm:max-w-md">
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Delete message?</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    This will permanently hide the message from everyone in the batch. You cannot undo this action.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction
-                    className="bg-danger text-white hover:bg-danger/90"
-                    onClick={() => messageToDelete && handleDeleteMessage(messageToDelete)}
-                  >
-                    Delete
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
-
-            {/* Replying to preview */}
-            {replyingTo && (
-              <div className="px-4 py-2 bg-muted/30 border-t border-border/40 flex items-center justify-between animate-in slide-in-from-bottom-2">
-                <div className="flex-1 min-w-0 border-l-2 border-primary pl-3 py-1">
-                  <p className="text-[10px] font-bold text-primary uppercase tracking-wider">
-                    Replying to {replyingTo.sender_name}
-                  </p>
-                  <p className="text-sm text-muted-foreground truncate">{getMessagePreview(replyingTo)}</p>
-                </div>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="w-8 h-8 rounded-full"
-                  onClick={() => setReplyingTo(null)}
-                >
-                  <X className="w-4 h-4" />
-                </Button>
-              </div>
-            )}
-
-            {/* B-28: Editing context bar */}
-            {editingMessage && (
-              <div className="px-4 py-2 bg-amber-500/10 border-t border-amber-500/20 flex items-center justify-between">
-                <div className="flex-1 min-w-0 border-l-2 border-amber-500 pl-3 py-1">
-                  <p className="text-[10px] font-bold text-amber-600 uppercase tracking-wider">Editing message</p>
-                  <p className="text-sm text-muted-foreground truncate">{editingMessage.message}</p>
-                </div>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="w-8 h-8 rounded-full"
-                  onClick={() => { setEditingMessage(null); setChatInput(""); }}
-                >
-                  <X className="w-4 h-4" />
-                </Button>
-              </div>
-            )}
-
-            {attachedFile && (
-              <div className="px-3 py-2 bg-muted/50 border-t border-border/40 flex items-center gap-2">
-                <div className="flex items-center gap-2 flex-1 min-w-0 bg-card border border-border/50 rounded-lg px-3 py-1.5">
-                  {attachedFile.type.startsWith("image/") ? (
-                    <Image className="w-4 h-4 text-primary flex-shrink-0" />
-                  ) : (
-                    <FileText className="w-4 h-4 text-primary flex-shrink-0" />
+                    </>
                   )}
-                  <span className="text-xs truncate text-foreground">{attachedFile.name}</span>
-                  <span className="text-xs text-muted-foreground flex-shrink-0">
-                    {(attachedFile.size / 1024 / 1024).toFixed(1)} MB
-                  </span>
                 </div>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="w-7 h-7 text-muted-foreground hover:text-danger flex-shrink-0"
-                  onClick={() => setAttachedFile(null)}
-                >
-                  <X className="w-3.5 h-3.5" />
-                </Button>
-              </div>
-            )}
-
-            {/* Scroll-to-bottom button — visible whenever user is not at the bottom.
-                 Mimics WhatsApp behaviour: appears as soon as you scroll up even 1px */}
-            <AnimatePresence>
-              {showScrollDown && (
-                <motion.div
-                  initial={{ opacity: 0, scale: 0.8, y: 10 }}
-                  animate={{ opacity: 1, scale: 1, y: 0 }}
-                  exit={{ opacity: 0, scale: 0.8, y: 10 }}
-                  transition={{ duration: 0.15 }}
-                  className="absolute bottom-[80px] right-4 z-20"
-                >
-                  <Button
-                    size="icon"
-                    className="rounded-full shadow-xl gradient-hero text-white border-0 w-11 h-11 hover:opacity-90"
-                    onClick={() => scrollToBottom("smooth")}
-                  >
-                    <ArrowDown className="w-5 h-5" />
-                  </Button>
-                </motion.div>
-              )}
-            </AnimatePresence>
-
-            {/* Chat input */}
-            <div className="border-t border-border/50 p-3 bg-card flex gap-2 items-end" style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}>
-              {/* Hidden file input */}
-              <input
-                ref={fileInputRef}
-                type="file"
-                className="hidden"
-                accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip"
-                onChange={handleFileSelect}
-              />
-              <Button
-                onMouseDown={(e) => e.preventDefault()}
-                variant="ghost"
-                size="icon"
-                className="w-9 h-9 text-muted-foreground hover:text-primary flex-shrink-0"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={sendingMsg}
-                title="Attach file"
-              >
-                <Paperclip className="w-4 h-4" />
-              </Button>
-              <Input
-                ref={inputRef}
-                placeholder={editingMessage ? "Edit your message..." : "Type a message..."}
-                value={chatInput}
-                onChange={(e) => setChatInput(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && sendMessage()}
-                className="flex-1 h-9"
-              />
-              {editingMessage ? (
-                <>
-                  <Button
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => { setEditingMessage(null); setChatInput(""); }}
-                    size="icon"
-                    variant="ghost"
-                    className="w-9 h-9 flex-shrink-0"
-                  >
-                    <X className="w-4 h-4 text-muted-foreground" />
-                  </Button>
-                  <Button
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={sendMessage}
-                    size="icon"
-                    disabled={sendingMsg || !chatInput.trim()}
-                    className="w-9 h-9 gradient-hero text-white border-0 hover:opacity-90 flex-shrink-0"
-                  >
-                    {sendingMsg ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
-                  </Button>
-                </>
-              ) : (
-                <Button
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={sendMessage}
-                  size="icon"
-                  disabled={sendingMsg || (!chatInput.trim() && !attachedFile)}
-                  className="w-9 h-9 gradient-hero text-white border-0 hover:opacity-90 flex-shrink-0"
-                >
-                  {sendingMsg ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
-                </Button>
-              )}
-            </div>
-          </TabsContent>
-
-          {/* ── Announcements ── */}
-          <TabsContent value="announcements" className="h-full overflow-y-auto m-0 p-4 data-[state=inactive]:hidden">
-            <div className="max-w-2xl space-y-4">
-              {(currentUserRole === "teacher" || currentUserRole === "admin") && (
-                <Dialog open={annDialog} onOpenChange={setAnnDialog}>
-                  <DialogTrigger asChild>
-                    <Button className="gradient-hero text-white border-0 shadow-primary hover:opacity-90 gap-2 mb-2">
-                      <Plus className="w-4 h-4" /> Post Announcement
-                    </Button>
-                  </DialogTrigger>
-                  <DialogContent className="sm:max-w-md">
-                    <DialogHeader>
-                      <DialogTitle className="font-display">New Announcement</DialogTitle>
-                    </DialogHeader>
-                    <div className="space-y-4 pt-2">
-                      <div className="space-y-1.5">
-                        <Label>Title</Label>
-                        <Input
-                          placeholder="e.g. Unit Test 3 Schedule"
-                          value={newAnn.title}
-                          onChange={(e) => setNewAnn((p) => ({ ...p, title: e.target.value }))}
-                        />
-                      </div>
-                      <div className="space-y-1.5">
-                        <Label>Message</Label>
-                        <Textarea
-                          placeholder="Write your announcement..."
-                          value={newAnn.content}
-                          onChange={(e) => setNewAnn((p) => ({ ...p, content: e.target.value }))}
-                          rows={3}
-                        />
-                      </div>
-                      {/* Notify Push toggle */}
-                      <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50 border border-border/50">
-                        <div className="flex items-center gap-2.5">
-                          <Bell className="w-4 h-4 text-accent" />
-                          <div>
-                            <p className="text-sm font-medium">Alert students on phone</p>
-                            <p className="text-xs text-muted-foreground">Send a mobile push notification</p>
-                          </div>
-                        </div>
-                        <Switch
-                          checked={newAnn.notifyPush}
-                          onCheckedChange={(v) => setNewAnn((p) => ({ ...p, notifyPush: v }))}
-                        />
-                      </div>
-                      <Button
-                        className="w-full gradient-hero text-white border-0 hover:opacity-90"
-                        onClick={postAnnouncement}
-                        disabled={savingAnn}
-                      >
-                        {savingAnn ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null} Post
+                {!msg.is_deleted && msg.isSelf && (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" size="icon" className="w-5 h-5 absolute right-2 top-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <MoreVertical className="w-3 h-3 text-current opacity-80" />
                       </Button>
-                    </div>
-                  </DialogContent>
-                </Dialog>
-              )}
-              {announcements.length === 0 ? (
-                <p className="text-sm text-muted-foreground text-center py-8">No announcements yet.</p>
-              ) : (
-                announcements.map((ann, i) => (
-                  <motion.div
-                    key={ann.id}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: i * 0.06 }}
-                  >
-                    <Card className="p-4 shadow-card border-border/50">
-                      <div className="flex items-start gap-3">
-                        <div className="w-9 h-9 rounded-xl gradient-hero flex items-center justify-center flex-shrink-0">
-                          <Megaphone className="w-4 h-4 text-white" />
-                        </div>
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className="font-semibold text-sm">{ann.title}</span>
-                            {ann.type && (
-                              <Badge variant="secondary" className="text-xs">
-                                {ann.type}
-                              </Badge>
-                            )}
-                            {ann.notify_push && (
-                              <Badge className="text-xs bg-accent-light text-accent border-accent/20 gap-1">
-                                <Bell className="w-2.5 h-2.5" /> Alerted
-                              </Badge>
-                            )}
-                          </div>
-                          <p className="text-sm text-muted-foreground leading-relaxed mb-2">{ann.content}</p>
-                          <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                            <span>{ann.posted_by_name}</span>
-                            <span className="flex items-center gap-1">
-                              <Clock className="w-3 h-3" />
-                              {timeAgo(ann.created_at)}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    </Card>
-                  </motion.div>
-                ))
-              )}
-            </div>
-          </TabsContent>
-
-          {/* ── Attendance ── */}
-          <TabsContent value="attendance" className="h-full overflow-y-auto m-0 p-4 data-[state=inactive]:hidden">
-            <div className="max-w-xl space-y-4">
-              <div className="grid grid-cols-3 gap-3">
-                <Card className="p-3 text-center shadow-card border-border/50">
-                  <div className="text-xl font-display font-bold text-success">{presentCount}</div>
-                  <div className="text-xs text-muted-foreground">Present</div>
-                </Card>
-                <Card className="p-3 text-center shadow-card border-border/50">
-                  <div className="text-xl font-display font-bold text-danger">{students.length - presentCount}</div>
-                  <div className="text-xs text-muted-foreground">Absent</div>
-                </Card>
-                <Card className="p-3 text-center shadow-card border-border/50">
-                  <div
-                    className={`text-xl font-display font-bold ${students.length > 0 && Math.round((presentCount / students.length) * 100) >= 75 ? "text-success" : "text-danger"}`}
-                  >
-                    {students.length > 0 ? `${Math.round((presentCount / students.length) * 100)}%` : "—"}
-                  </div>
-                  <div className="text-xs text-muted-foreground">Today</div>
-                </Card>
-              </div>
-              {students.length === 0 ? (
-                <Card className="p-8 text-center shadow-card border-border/50">
-                  <Users className="w-8 h-8 mx-auto mb-2 text-muted-foreground opacity-40" />
-                  <p className="text-sm text-muted-foreground">No students enrolled in this batch yet.</p>
-                </Card>
-              ) : (
-                <Card className="shadow-card border-border/50 overflow-hidden">
-                  <div className="p-3 border-b border-border/50 flex items-center justify-between">
-                    <p className="font-display font-semibold text-sm">
-                      Today's Attendance — {new Date().toLocaleDateString("en-IN", { day: "numeric", month: "long" })}
-                    </p>
-                    <Badge variant="secondary" className="text-xs gap-1">
-                      <Eye className="w-3 h-3" /> Read-only
-                    </Badge>
-                  </div>
-                  <div className="divide-y divide-border/40">
-                    {students.map((s) => (
-                      <div key={s.id} className="flex items-center justify-between px-4 py-2.5">
-                        <div className="flex items-center gap-2.5">
-                          <div className="w-7 h-7 rounded-full gradient-hero flex items-center justify-center text-white text-xs font-bold">
-                            {s.full_name
-                              .split(" ")
-                              .map((n) => n[0])
-                              .join("")
-                              .slice(0, 2)}
-                          </div>
-                          <p className="text-sm font-medium">{s.full_name}</p>
-                        </div>
-                        <Badge
-                          className={
-                            attendance[s.id]
-                              ? "bg-success-light text-success border-success/20 text-xs"
-                              : "bg-danger-light text-danger border-danger/20 text-xs"
-                          }
-                        >
-                          {attendance[s.id] ? "Present" : "Absent"}
-                        </Badge>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="p-3 border-t border-border/50 text-center">
-                    <p className="text-xs text-muted-foreground">
-                      To mark attendance, use the dedicated <strong>Attendance</strong> section in the main panel.
-                    </p>
-                  </div>
-                </Card>
-              )}
-            </div>
-          </TabsContent>
-
-          {/* ── Tests ── */}
-          <TabsContent value="tests" className="h-full overflow-y-auto m-0 p-4 data-[state=inactive]:hidden">
-            <div className="max-w-2xl space-y-4">
-              <div className="flex justify-between items-center">
-                <h3 className="font-display font-semibold">Test Scores</h3>
-                <Badge variant="secondary" className="text-xs gap-1">
-                  <Eye className="w-3 h-3" /> Read-only
-                </Badge>
-              </div>
-              {tests.length === 0 ? (
-                <p className="text-sm text-muted-foreground text-center py-8">No test scores yet.</p>
-              ) : (
-                tests.map((t, i) => (
-                  <motion.div
-                    key={t.id}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: i * 0.06 }}
-                  >
-                    <Card className="p-4 shadow-card border-border/50">
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="flex items-center gap-3">
-                          <div className="w-9 h-9 rounded-xl gradient-hero flex items-center justify-center text-white text-xs font-bold">
-                            {i + 1}
-                          </div>
-                          <div>
-                            <p className="font-semibold text-sm">{t.test_name}</p>
-                            <p className="text-xs text-muted-foreground">
-                              {new Date(t.test_date).toLocaleDateString("en-IN")} · Max: {t.max_marks}
-                            </p>
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          <p className="font-display font-bold text-lg">
-                            {t.score}
-                            <span className="text-sm text-muted-foreground">/{t.max_marks}</span>
-                          </p>
-                          <p
-                            className={`text-xs font-semibold ${Math.round((t.score / t.max_marks) * 100) >= 75 ? "text-success" : "text-warning"}`}
-                          >
-                            {Math.round((t.score / t.max_marks) * 100)}%
-                          </p>
-                        </div>
-                      </div>
-                      <div className="mt-3">
-                        <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden">
-                          <div
-                            className={`h-full rounded-full ${Math.round((t.score / t.max_marks) * 100) >= 75 ? "bg-success" : "bg-warning"}`}
-                            style={{ width: `${Math.round((t.score / t.max_marks) * 100)}%` }}
-                          />
-                        </div>
-                      </div>
-                    </Card>
-                  </motion.div>
-                ))
-              )}
-            </div>
-          </TabsContent>
-
-          {/* ── DPP / Homework ── */}
-          <TabsContent value="dpp" className="h-full overflow-y-auto m-0 p-4 data-[state=inactive]:hidden">
-            <div className="max-w-2xl space-y-4">
-              <div className="flex justify-between items-center">
-                <h3 className="font-display font-semibold">DPP / Homework</h3>
-                {currentUserRole === "teacher" && (
-                  <Dialog open={dppDialog} onOpenChange={setDppDialog}>
-                    <DialogTrigger asChild>
-                      <Button
-                        size="sm"
-                        className="gradient-hero text-white border-0 shadow-primary hover:opacity-90 gap-1.5 h-8 text-xs"
-                      >
-                        <Plus className="w-3.5 h-3.5" /> Upload DPP
-                      </Button>
-                    </DialogTrigger>
-                    <DialogContent className="sm:max-w-md">
-                      <DialogHeader>
-                        <DialogTitle className="font-display">Upload DPP / Homework</DialogTitle>
-                      </DialogHeader>
-                      <div className="space-y-4 pt-2">
-                        <div className="space-y-1.5">
-                          <Label>Title *</Label>
-                          <Input
-                            placeholder="e.g. DPP 14 — Electrostatics"
-                            value={newDpp.title}
-                            onChange={(e) => setNewDpp((p) => ({ ...p, title: e.target.value }))}
-                          />
-                        </div>
-                        <div className="space-y-1.5">
-                          <Label>Description / Instructions</Label>
-                          <Textarea
-                            placeholder="Any notes for students..."
-                            value={newDpp.description}
-                            onChange={(e) => setNewDpp((p) => ({ ...p, description: e.target.value }))}
-                            rows={2}
-                          />
-                        </div>
-                        <div className="space-y-1.5">
-                          <Label>Link (optional)</Label>
-                          <Input
-                            placeholder="https://... (Google Drive, YouTube, etc.)"
-                            value={newDpp.link_url}
-                            onChange={(e) => setNewDpp((p) => ({ ...p, link_url: e.target.value }))}
-                          />
-                        </div>
-                        <div className="space-y-1.5">
-                          <Label>File (optional)</Label>
-                          <input
-                            ref={dppFileRef}
-                            type="file"
-                            className="hidden"
-                            accept="image/*,application/pdf,.doc,.docx"
-                            onChange={(e) => setDppFile(e.target.files?.[0] || null)}
-                          />
-                          <div
-                            className="flex items-center gap-3 p-3 border border-dashed border-border/60 rounded-lg bg-muted/40 cursor-pointer hover:bg-muted/60 transition-colors"
-                            onClick={() => dppFileRef.current?.click()}
-                          >
-                            <Paperclip className="w-4 h-4 text-muted-foreground" />
-                            <span className="text-sm text-muted-foreground">
-                              {dppFile ? dppFile.name : "Attach PDF, image, or doc (max 10MB)"}
-                            </span>
-                            {dppFile && (
-                              <button
-                                className="ml-auto text-danger"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setDppFile(null);
-                                }}
-                              >
-                                <X className="w-4 h-4" />
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                        <Button
-                          className="w-full gradient-hero text-white border-0 hover:opacity-90"
-                          onClick={postDpp}
-                          disabled={savingDpp || !newDpp.title}
-                        >
-                          {savingDpp ? (
-                            <>
-                              <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                              Uploading...
-                            </>
-                          ) : (
-                            "Post DPP / Homework"
-                          )}
-                        </Button>
-                      </div>
-                    </DialogContent>
-                  </Dialog>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-32">
+                      {new Date(msg.created_at).getTime() > Date.now() - 20 * 60 * 1000 && !msg.file_url && (
+                        <DropdownMenuItem onClick={() => { setEditingMessage(msg); setChatInput(msg.message); setTimeout(() => inputRef.current?.focus(), 50); }}>
+                          <Edit2 className="w-4 h-4 mr-2" /> Edit
+                        </DropdownMenuItem>
+                      )}
+                      <DropdownMenuItem className="text-danger focus:text-danger" onClick={() => setMessageToDelete(msg.id)}>
+                        <Trash2 className="w-4 h-4 mr-2" /> Delete
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 )}
-              </div>
-
-              {dppItems.length === 0 ? (
-                <p className="text-sm text-muted-foreground text-center py-8">No DPP or homework posted yet.</p>
-              ) : (
-                dppItems.map((item, i) => (
-                  <motion.div
-                    key={item.id}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: i * 0.06 }}
-                  >
-                    <Card className="p-4 shadow-card border-border/50">
-                      <div className="flex items-start gap-3">
-                        <div className="w-9 h-9 rounded-xl gradient-hero flex items-center justify-center flex-shrink-0">
-                          <BookMarked className="w-4 h-4 text-white" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="font-semibold text-sm mb-0.5">{item.title}</p>
-                          {item.description && <p className="text-xs text-muted-foreground mb-2">{item.description}</p>}
-                          <div className="flex flex-wrap gap-2">
-                            {item.file_url && (
-                              <a
-                                href={item.file_url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="flex items-center gap-1.5 text-xs text-primary hover:underline bg-primary-light px-2.5 py-1 rounded-full"
-                              >
-                                <Download className="w-3 h-3" /> {item.file_name || "Download File"}
-                              </a>
-                            )}
-                            {item.link_url && (
-                              <a
-                                href={item.link_url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="flex items-center gap-1.5 text-xs text-accent hover:underline bg-accent-light px-2.5 py-1 rounded-full"
-                              >
-                                <LinkIcon className="w-3 h-3" /> Open Link
-                              </a>
-                            )}
-                          </div>
-                          <p className="text-xs text-muted-foreground mt-2 flex items-center gap-1">
-                            <Clock className="w-3 h-3" /> {timeAgo(item.created_at)} · {item.posted_by_name}
-                          </p>
-                        </div>
-                      </div>
-                    </Card>
-                  </motion.div>
-                ))
-              )}
-            </div>
-          </TabsContent>
-
-          {/* ── Rankings ── */}
-          <TabsContent value="rankings" className="h-full overflow-y-auto m-0 p-4 data-[state=inactive]:hidden">
-            <div className="max-w-md space-y-4">
-              <Card className="shadow-card border-border/50 overflow-hidden">
-                <div className="gradient-hero p-5 text-white">
-                  <div className="flex items-center gap-2 mb-1">
-                    <Trophy className="w-5 h-5" />
-                    <span className="font-display font-bold text-lg">Batch Leaderboard</span>
+                <div className="flex items-center gap-3 mt-1 px-1">
+                  <span className="text-[10px] text-muted-foreground flex items-center gap-1">
+                    {formatChatDate(msg.created_at)}
+                    {msg.is_edited && <span className="italic opacity-70">(Edited)</span>}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => handleReaction(msg.id, "👍")}
+                      className={cn(
+                        "flex items-center gap-1 p-1 rounded-md transition-colors hover:bg-muted",
+                        msg.reactions?.["👍"]?.includes(currentUserId) && "text-primary bg-primary-light/30",
+                      )}
+                    >
+                      <ThumbsUp className="w-3 h-3" />
+                      {msg.reactions?.["👍"]?.length > 0 && (
+                        <span className="text-[10px] font-bold">{msg.reactions["👍"].length}</span>
+                      )}
+                    </button>
+                    <button
+                      onClick={() => handleReaction(msg.id, "👎")}
+                      className={cn(
+                        "flex items-center gap-1 p-1 rounded-md transition-colors hover:bg-muted",
+                        msg.reactions?.["👎"]?.includes(currentUserId) && "text-danger bg-danger-light/30",
+                      )}
+                    >
+                      <ThumbsDown className="w-3 h-3" />
+                      {msg.reactions?.["👎"]?.length > 0 && (
+                        <span className="text-[10px] font-bold">{msg.reactions["👎"].length}</span>
+                      )}
+                    </button>
+                    {(Object.keys(msg.reactions || {}).reduce((acc, cur) => acc + (msg.reactions?.[cur]?.length || 0), 0) > 0) && (
+                      <button
+                        onClick={() => setReactionsViewerMsg(msg)}
+                        className="text-[10px] font-semibold text-primary hover:underline ml-1"
+                      >
+                        See
+                      </button>
+                    )}
                   </div>
-                  <p className="text-white/70 text-sm">Based on latest test scores</p>
                 </div>
-                {tests.length === 0 ? (
-                  <div className="p-8 text-center text-muted-foreground text-sm">No test scores yet to rank.</div>
-                ) : (
-                  (() => {
-                    // B-23: Pre-populate all enrolled students so those with no scores still appear
-                    const byStudent: Record<string, { name: string; total: number; count: number }> = {};
-                    students.forEach((s) => {
-                      byStudent[s.user_id] = { name: s.full_name, total: 0, count: 0 };
-                    });
-                    tests.forEach((t) => {
-                      const s = students.find((s) => s.user_id === t.student_id);
-                      const name = s?.full_name || "Unknown";
-                      if (!byStudent[t.student_id]) byStudent[t.student_id] = { name, total: 0, count: 0 };
-                      byStudent[t.student_id].total += Math.round((t.score / t.max_marks) * 100);
-                      byStudent[t.student_id].count += 1;
-                    });
-                    const ranked = Object.entries(byStudent)
-                      .map(([id, v]) => ({ id, name: v.name, avg: v.count > 0 ? Math.round(v.total / v.count) : 0 }))
-                      .sort((a, b) => b.avg - a.avg);
-                    return (
-                      <div className="divide-y divide-border/40">
-                        {ranked.map((r, i) => (
-                          <div
-                            key={r.id}
-                            className={cn(
-                              "flex items-center gap-3 px-4 py-3.5",
-                              r.id === currentUserId && "bg-primary-light/40 border-l-2 border-primary",
-                            )}
-                          >
-                            <div
-                              className={cn(
-                                "w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm flex-shrink-0",
-                                i === 0
-                                  ? "gradient-hero text-white"
-                                  : i === 1
-                                    ? "bg-secondary text-foreground"
-                                    : i === 2
-                                      ? "bg-accent-light text-accent"
-                                      : "bg-muted text-muted-foreground text-xs",
-                              )}
-                            >
-                              {i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : i + 1}
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <p
-                                className={cn(
-                                  "text-sm font-medium",
-                                  r.id === currentUserId && "text-primary font-bold",
-                                )}
-                              >
-                                {r.name} {r.id === currentUserId && <span className="text-xs">(You)</span>}
-                              </p>
-                              <p className="text-xs text-muted-foreground">Avg: {r.avg}%</p>
-                            </div>
-                            <span className="text-sm font-display font-bold">{r.avg}%</span>
-                          </div>
+              </div>
+            </motion.div>
+          ))}
+          <div ref={chatEndRef} />
+        </div>
+
+        {/* Reactions Viewer Dialog */}
+        {reactionsViewerMsg && (
+          <Dialog open={!!reactionsViewerMsg} onOpenChange={(open) => !open && setReactionsViewerMsg(null)}>
+            <DialogContent className="sm:max-w-xs">
+              <DialogHeader>
+                <DialogTitle className="font-display">Reactions</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4 pt-2 max-h-[60vh] overflow-y-auto">
+                {["👍", "👎"].map((emoji) => {
+                  const userIds = reactionsViewerMsg.reactions?.[emoji] || [];
+                  if (userIds.length === 0) return null;
+                  const names = resolveReactorNames(userIds);
+                  return (
+                    <div key={emoji} className="space-y-2">
+                      <h4 className="text-sm font-semibold flex items-center gap-2">
+                        <span>{emoji}</span>
+                        <Badge variant="secondary" className="px-1.5 py-0 min-w-5 justify-center">{userIds.length}</Badge>
+                      </h4>
+                      <div className="space-y-1.5 pl-2 border-l-2 border-border/50">
+                        {names.map((name, i) => (
+                          <p key={userIds[i] || i} className="text-sm">{name}</p>
                         ))}
                       </div>
-                    );
-                  })()
-                )}
-              </Card>
+                    </div>
+                  );
+                })}
+              </div>
+            </DialogContent>
+          </Dialog>
+        )}
+
+        {/* Delete Confirmation Dialog */}
+        <AlertDialog open={!!messageToDelete} onOpenChange={(open) => !open && setMessageToDelete(null)}>
+          <AlertDialogContent className="sm:max-w-md">
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete message?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This will permanently hide the message from everyone in the batch. You cannot undo this action.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-danger text-white hover:bg-danger/90"
+                onClick={() => messageToDelete && handleDeleteMessage(messageToDelete)}
+              >
+                Delete
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        {/* Replying-to preview */}
+        {replyingTo && (
+          <div className="px-4 py-2 bg-muted/30 border-t border-border/40 flex items-center justify-between animate-in slide-in-from-bottom-2">
+            <div className="flex-1 min-w-0 border-l-2 border-primary pl-3 py-1">
+              <p className="text-[10px] font-bold text-primary uppercase tracking-wider">
+                Replying to {replyingTo.sender_name}
+              </p>
+              <p className="text-sm text-muted-foreground truncate">{getMessagePreview(replyingTo)}</p>
             </div>
-          </TabsContent>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="w-8 h-8 rounded-full"
+              onClick={() => setReplyingTo(null)}
+            >
+              <X className="w-4 h-4" />
+            </Button>
+          </div>
+        )}
+
+        {/* Editing context bar */}
+        {editingMessage && (
+          <div className="px-4 py-2 bg-amber-500/10 border-t border-amber-500/20 flex items-center justify-between">
+            <div className="flex-1 min-w-0 border-l-2 border-amber-500 pl-3 py-1">
+              <p className="text-[10px] font-bold text-amber-600 uppercase tracking-wider">Editing message</p>
+              <p className="text-sm text-muted-foreground truncate">{editingMessage.message}</p>
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="w-8 h-8 rounded-full"
+              onClick={() => { setEditingMessage(null); setChatInput(""); }}
+            >
+              <X className="w-4 h-4" />
+            </Button>
+          </div>
+        )}
+
+        {attachedFile && (
+          <div className="px-3 py-2 bg-muted/50 border-t border-border/40 flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-1 min-w-0 bg-card border border-border/50 rounded-lg px-3 py-1.5">
+              {attachedFile.type.startsWith("image/") ? (
+                <Image className="w-4 h-4 text-primary flex-shrink-0" />
+              ) : (
+                <FileText className="w-4 h-4 text-primary flex-shrink-0" />
+              )}
+              <span className="text-xs truncate text-foreground">{attachedFile.name}</span>
+              <span className="text-xs text-muted-foreground flex-shrink-0">
+                {(attachedFile.size / 1024 / 1024).toFixed(1)} MB
+              </span>
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="w-7 h-7 text-muted-foreground hover:text-danger flex-shrink-0"
+              onClick={() => setAttachedFile(null)}
+            >
+              <X className="w-3.5 h-3.5" />
+            </Button>
+          </div>
+        )}
+
+        {/* Scroll-to-bottom FAB */}
+        <AnimatePresence>
+          {showScrollDown && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.8, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.8, y: 10 }}
+              transition={{ duration: 0.15 }}
+              className="absolute bottom-[80px] right-4 z-20"
+            >
+              <Button
+                size="icon"
+                className="rounded-full shadow-xl gradient-hero text-white border-0 w-11 h-11 hover:opacity-90"
+                onClick={() => scrollToBottom("smooth")}
+              >
+                <ArrowDown className="w-5 h-5" />
+              </Button>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Chat input */}
+        <div className="border-t border-border/50 p-3 bg-card flex gap-2 items-end" style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}>
+          <input
+            ref={fileInputRef}
+            type="file"
+            className="hidden"
+            accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip"
+            onChange={handleFileSelect}
+          />
+          <Button
+            onMouseDown={(e) => e.preventDefault()}
+            variant="ghost"
+            size="icon"
+            className="w-9 h-9 text-muted-foreground hover:text-primary flex-shrink-0"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={sendingMsg || uploadingFile}
+            title="Attach file"
+          >
+            <Paperclip className="w-4 h-4" />
+          </Button>
+          <Input
+            ref={inputRef}
+            placeholder={editingMessage ? "Edit your message..." : "Type a message..."}
+            value={chatInput}
+            onChange={(e) => setChatInput(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && sendMessage()}
+            className="flex-1 h-9"
+          />
+          {editingMessage ? (
+            <>
+              <Button
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => { setEditingMessage(null); setChatInput(""); }}
+                size="icon"
+                variant="ghost"
+                className="w-9 h-9 flex-shrink-0"
+              >
+                <X className="w-4 h-4 text-muted-foreground" />
+              </Button>
+              <Button
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={sendMessage}
+                size="icon"
+                disabled={sendingMsg || !chatInput.trim()}
+                className="w-9 h-9 gradient-hero text-white border-0 hover:opacity-90 flex-shrink-0"
+              >
+                {sendingMsg ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+              </Button>
+            </>
+          ) : (
+            <Button
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={sendMessage}
+              size="icon"
+              disabled={sendingMsg || (!chatInput.trim() && !attachedFile)}
+              className="w-9 h-9 gradient-hero text-white border-0 hover:opacity-90 flex-shrink-0"
+            >
+              {sendingMsg ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+            </Button>
+          )}
         </div>
-      </Tabs>
+      </div>
     </div>
   );
 }
