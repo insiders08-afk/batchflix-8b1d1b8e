@@ -553,17 +553,32 @@ export default function AdminAttendance() {
 
               <div className="p-4 border-t border-border/50">
                 <Button
-                  className={cn("w-full border-0", !isLocked ? "gradient-hero text-white shadow-primary hover:opacity-90" : "bg-muted text-muted-foreground cursor-not-allowed")}
+                  className={cn(
+                    "w-full border-0",
+                    isLocked
+                      ? "bg-muted text-muted-foreground cursor-not-allowed"
+                      : isDirty || !hasEverSaved
+                        ? "gradient-hero text-white shadow-primary hover:opacity-90"
+                        : "bg-success/10 text-success hover:bg-success/15",
+                  )}
                   onClick={saveAttendance}
-                  disabled={saving || students.length === 0 || isLocked}
+                  disabled={saving || students.length === 0 || isLocked || (hasEverSaved && !isDirty)}
                 >
                   {saving ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Saving...</>
                     : todayIsDayOff ? <><Lock className="w-4 h-4 mr-2" />Day Off — No Attendance</>
                     : !attEditable ? <><Lock className="w-4 h-4 mr-2" />Attendance Locked</>
-                    : "Save Attendance"}
+                    : hasEverSaved
+                      ? (isDirty ? "Update Attendance" : <><CheckCircle2 className="w-4 h-4 mr-2" />All changes saved</>)
+                      : "Save Attendance"}
                 </Button>
-                {todayIsDayOff && <p className="text-xs text-warning text-center mt-1.5">Today is marked as a day off.</p>}
-                {!todayIsDayOff && !attEditable && <p className="text-xs text-muted-foreground text-center mt-1.5">{attLockReason}</p>}
+                {/* Dirty-state footnote — the "you have unsaved changes" star */}
+                {!isLocked && isDirty && (
+                  <p className="text-xs text-warning text-center mt-1.5 flex items-center justify-center gap-1">
+                    <AlertCircle className="w-3 h-3" />
+                    You have <span className="font-bold">unsaved changes</span>{hasEverSaved ? " — tap to update" : ""}
+                  </p>
+                )}
+                {/* Removed redundant lock notice — already shown above the grid */}
               </div>
             </Card>
           </div>
