@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Search, CheckCircle2, XCircle, Clock, CalendarDays, Loader2, Users, BarChart3, Lock, AlertCircle, Maximize2, RotateCcw } from "lucide-react";
+import { Search, CheckCircle2, XCircle, Clock, CalendarDays, Loader2, Users, BarChart3, Lock, LockOpen, AlertCircle, Maximize2, RotateCcw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
