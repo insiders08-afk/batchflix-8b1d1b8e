@@ -282,6 +282,9 @@ export default function TeacherAttendance() {
             date: today, students, attendance, batchHistory, cachedAt: Date.now(),
           }));
         } catch { /* ignore */ }
+        setSavedBaseline(attendance);
+        setHasEverSaved(true);
+        setLastMarkerKey(k => k + 1);
         toast({ title: "📥 Saved offline", description: "Will sync when back online." });
         setSaving(false);
         return;
@@ -294,7 +297,10 @@ export default function TeacherAttendance() {
       }));
       const { error } = await supabase.from("attendance").upsert(fullRecords, { onConflict: "batch_id,student_id,date" });
       if (error) throw error;
-      toast({ title: "✅ Attendance saved!", description: `${students.length} students recorded.` });
+      setSavedBaseline(attendance);
+      setHasEverSaved(true);
+      setLastMarkerKey(k => k + 1);
+      toast({ title: hasEverSaved ? "✅ Attendance updated!" : "✅ Attendance saved!", description: `${students.length} students recorded.` });
       loadBatchData(selectedBatchId);
     } catch (err: unknown) {
       // Network failure → fall back to queue
@@ -313,6 +319,9 @@ export default function TeacherAttendance() {
             })),
           },
         });
+        setSavedBaseline(attendance);
+        setHasEverSaved(true);
+        setLastMarkerKey(k => k + 1);
         toast({ title: "📥 Saved offline", description: "Will sync when back online." });
       } else {
         toast({ title: "Error", description: msg, variant: "destructive" });
@@ -340,6 +349,44 @@ export default function TeacherAttendance() {
   const presentCount = Object.values(attendance).filter(v => v === "present").length;
   const pct = students.length > 0 ? Math.round((presentCount / students.length) * 100) : 0;
   const filtered = students.filter(s => s.full_name.toLowerCase().includes(search.toLowerCase()));
+
+  // Dirty-state derivation
+  const isDirty = useMemo(() => {
+    const keys = new Set([...Object.keys(attendance), ...Object.keys(savedBaseline)]);
+    for (const k of keys) {
+      if (attendance[k] !== savedBaseline[k]) return true;
+    }
+    return false;
+  }, [attendance, savedBaseline]);
+
+  const { confirmIfDirty } = useDirtyGuard(isDirty && !isLocked);
+
+  const handleBatchSwitch = (newBatchId: string) => {
+    if (!confirmIfDirty()) return;
+    setSelectedBatchId(newBatchId);
+  };
+
+  const repeatYesterday = useCallback(async () => {
+    if (!selectedBatchId || students.length === 0 || isLocked) return;
+    const yest = new Date();
+    yest.setDate(yest.getDate() - 1);
+    const yKey = yest.toISOString().split("T")[0];
+    const ids = students.map(s => s.user_id);
+    const { data, error } = await supabase
+      .from("attendance").select("student_id, present")
+      .eq("batch_id", selectedBatchId).eq("date", yKey)
+      .in("student_id", ids);
+    if (error || !data || data.length === 0) {
+      toast({ title: "No record for yesterday", description: "Nothing to copy from.", variant: "destructive" });
+      return;
+    }
+    const map: Record<string, "present" | "absent"> = {};
+    data.forEach(r => { map[r.student_id] = r.present ? "present" : "absent"; });
+    setAttendance(prev => ({ ...prev, ...map }));
+    toast({ title: "📋 Pre-filled from yesterday", description: `${data.length} students copied — review then Save.` });
+  }, [selectedBatchId, students, isLocked, toast]);
+
+  const animateRows = students.length <= 30;
 
   if (loading) return (
     <DashboardLayout title="Attendance" role="teacher">
