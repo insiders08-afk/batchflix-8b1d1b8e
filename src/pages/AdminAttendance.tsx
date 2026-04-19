@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { motion } from "framer-motion";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Card } from "@/components/ui/card";
@@ -6,15 +6,18 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Search, CheckCircle2, XCircle, Clock, CalendarDays, Loader2, Users, BarChart3, Lock } from "lucide-react";
+import { Search, CheckCircle2, XCircle, Clock, CalendarDays, Loader2, Users, BarChart3, Lock, AlertCircle, Maximize2, RotateCcw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import type { Tables } from "@/integrations/supabase/types";
 import AttendanceAnalyticsModal from "@/components/attendance/AttendanceAnalyticsModal";
 import AttendanceCalendarView from "@/components/attendance/AttendanceCalendarView";
+import LastMarkedBanner from "@/components/attendance/LastMarkedBanner";
+import RollCallMode from "@/components/attendance/RollCallMode";
 import { isAttendanceEditable, formatTimingDisplay } from "@/lib/batchTiming";
 import { enqueueTask } from "@/lib/offlineQueue";
+import { useDirtyGuard } from "@/hooks/useDirtyGuard";
 
 // ── Offline cache: per-batch today snapshot + recent history. Stored under
 // a per-batch key so switching batches still hydrates instantly from cache.
