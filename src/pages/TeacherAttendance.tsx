@@ -169,12 +169,19 @@ export default function TeacherAttendance() {
       }
       setStudents(profiles);
 
-      const { data: todayAtt } = await supabase.from("attendance").select("student_id, present")
-        .eq("batch_id", batchId).eq("date", today)
-        .in("student_id", ids.length > 0 ? ids : ["none"]);
+      // Bug A2 fix: never send `["none"]` into a UUID column — guard with early return
+      let todayAtt: { student_id: string; present: boolean }[] = [];
+      if (ids.length > 0) {
+        const { data } = await supabase.from("attendance").select("student_id, present")
+          .eq("batch_id", batchId).eq("date", today)
+          .in("student_id", ids);
+        todayAtt = data || [];
+      }
 
+      // Bug A1 fix: Do NOT pre-fill "present" for unmarked students. Leave them
+      // undefined so the UI distinguishes "not taken" from "all present", and a
+      // reflexive Save can never silently mark everyone present.
       const attMap: Record<string, "present" | "absent"> = {};
-      profiles.forEach(p => { attMap[p.user_id] = "present"; });
       (todayAtt || []).forEach(a => { attMap[a.student_id] = a.present ? "present" : "absent"; });
       setAttendance(attMap);
 
