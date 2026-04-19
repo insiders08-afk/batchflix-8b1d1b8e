@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import DashboardLayout from "@/components/DashboardLayout";
@@ -9,15 +9,18 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   CheckCircle2, XCircle, CalendarDays, Users,
-  Loader2, Search, BarChart3, Clock, Lock
+  Loader2, Search, BarChart3, Clock, Lock, AlertCircle, Maximize2, RotateCcw,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import AttendanceAnalyticsModal from "@/components/attendance/AttendanceAnalyticsModal";
 import AttendanceCalendarView from "@/components/attendance/AttendanceCalendarView";
+import LastMarkedBanner from "@/components/attendance/LastMarkedBanner";
+import RollCallMode from "@/components/attendance/RollCallMode";
 import { isAttendanceEditable, formatTimingDisplay } from "@/lib/batchTiming";
 import { enqueueTask } from "@/lib/offlineQueue";
+import { useDirtyGuard } from "@/hooks/useDirtyGuard";
 
 const ATT_CACHE_PREFIX = "bh_attendance_today_";
 type CachedAtt = {
@@ -84,6 +87,12 @@ export default function TeacherAttendance() {
   const [analyticsStudent, setAnalyticsStudent] = useState<StudentStats | null>(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
   const [analyticsOpen, setAnalyticsOpen] = useState(false);
+
+  // Saved baseline → derives "isDirty" + "hasEverSaved" for the Save/Update button
+  const [savedBaseline, setSavedBaseline] = useState<Record<string, "present" | "absent">>({});
+  const [hasEverSaved, setHasEverSaved] = useState(false);
+  const [lastMarkerKey, setLastMarkerKey] = useState(0);
+  const [rollCallOpen, setRollCallOpen] = useState(false);
 
   // Day-off state
   const [todayIsDayOff, setTodayIsDayOff] = useState(false);
@@ -152,6 +161,8 @@ export default function TeacherAttendance() {
       setStudents(cachedAtt.students);
       setAttendance(cachedAtt.attendance);
       setBatchHistory(cachedAtt.batchHistory);
+      setSavedBaseline(cachedAtt.attendance);
+      setHasEverSaved(Object.keys(cachedAtt.attendance).length > 0);
       setLoadingStudents(false);
     }
     if (typeof navigator !== "undefined" && !navigator.onLine) {
@@ -184,6 +195,8 @@ export default function TeacherAttendance() {
       const attMap: Record<string, "present" | "absent"> = {};
       (todayAtt || []).forEach(a => { attMap[a.student_id] = a.present ? "present" : "absent"; });
       setAttendance(attMap);
+      setSavedBaseline(attMap);
+      setHasEverSaved(Object.keys(attMap).length > 0);
 
       const { data: histData } = await supabase.from("attendance").select("date, present, student_id")
         .eq("batch_id", batchId).order("date", { ascending: false }).limit(500);
