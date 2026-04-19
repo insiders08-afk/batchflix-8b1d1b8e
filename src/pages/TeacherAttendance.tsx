@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   CheckCircle2, XCircle, CalendarDays, Users,
-  Loader2, Search, BarChart3, Clock, Lock, LockOpen, AlertCircle, Maximize2, RotateCcw,
+  Loader2, Search, BarChart3, Clock, Lock, LockOpen, AlertCircle, RotateCcw,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
@@ -17,7 +17,7 @@ import { useToast } from "@/hooks/use-toast";
 import AttendanceAnalyticsModal from "@/components/attendance/AttendanceAnalyticsModal";
 import AttendanceCalendarView from "@/components/attendance/AttendanceCalendarView";
 import LastMarkedBanner from "@/components/attendance/LastMarkedBanner";
-import RollCallMode from "@/components/attendance/RollCallMode";
+
 import { isAttendanceEditable, formatTimingDisplay } from "@/lib/batchTiming";
 import { enqueueTask } from "@/lib/offlineQueue";
 import { useDirtyGuard } from "@/hooks/useDirtyGuard";
@@ -92,13 +92,12 @@ export default function TeacherAttendance() {
   const [savedBaseline, setSavedBaseline] = useState<Record<string, "present" | "absent">>({});
   const [hasEverSaved, setHasEverSaved] = useState(false);
   const [lastMarkerKey, setLastMarkerKey] = useState(0);
-  const [rollCallOpen, setRollCallOpen] = useState(false);
 
   // Day-off state
   const [todayIsDayOff, setTodayIsDayOff] = useState(false);
 
   const today = new Date().toISOString().split("T")[0];
-  const todayDisplay = new Date().toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" });
+  const todayDisplay = new Date().toLocaleDateString("en-IN", { day: "numeric", month: "long" });
 
   useEffect(() => {
     const init = async () => {
@@ -481,17 +480,8 @@ export default function TeacherAttendance() {
 
             <Card className="shadow-card border-border/50 overflow-hidden">
               <div className="p-4 border-b border-border/50 flex items-center gap-2">
-                <Button
-                  size="icon" variant="ghost"
-                  onClick={() => setRollCallOpen(true)}
-                  disabled={isLocked || students.length === 0}
-                  className="h-7 w-7 -ml-1"
-                  title="Open roll-call mode"
-                >
-                  <Maximize2 className="w-3.5 h-3.5" />
-                </Button>
                 <CalendarDays className="w-4 h-4 text-primary" />
-                <span className="font-display font-semibold text-sm">Today — {selectedBatch?.name || "No Batch"}</span>
+                <span className="font-display font-semibold text-sm">{selectedBatch?.name || "No Batch"}</span>
                 <Badge variant="secondary" className="ml-auto text-xs">{todayDisplay}</Badge>
                 <Button
                   size="sm" variant="outline"
