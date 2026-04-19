@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import DashboardLayout from "@/components/DashboardLayout";
@@ -9,15 +9,18 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   CheckCircle2, XCircle, CalendarDays, Users,
-  Loader2, Search, BarChart3, Clock, Lock
+  Loader2, Search, BarChart3, Clock, Lock, AlertCircle, Maximize2, RotateCcw,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import AttendanceAnalyticsModal from "@/components/attendance/AttendanceAnalyticsModal";
 import AttendanceCalendarView from "@/components/attendance/AttendanceCalendarView";
+import LastMarkedBanner from "@/components/attendance/LastMarkedBanner";
+import RollCallMode from "@/components/attendance/RollCallMode";
 import { isAttendanceEditable, formatTimingDisplay } from "@/lib/batchTiming";
 import { enqueueTask } from "@/lib/offlineQueue";
+import { useDirtyGuard } from "@/hooks/useDirtyGuard";
 
 const ATT_CACHE_PREFIX = "bh_attendance_today_";
 type CachedAtt = {
@@ -84,6 +87,12 @@ export default function TeacherAttendance() {
   const [analyticsStudent, setAnalyticsStudent] = useState<StudentStats | null>(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
   const [analyticsOpen, setAnalyticsOpen] = useState(false);
+
+  // Saved baseline → derives "isDirty" + "hasEverSaved" for the Save/Update button
+  const [savedBaseline, setSavedBaseline] = useState<Record<string, "present" | "absent">>({});
+  const [hasEverSaved, setHasEverSaved] = useState(false);
+  const [lastMarkerKey, setLastMarkerKey] = useState(0);
+  const [rollCallOpen, setRollCallOpen] = useState(false);
 
   // Day-off state
   const [todayIsDayOff, setTodayIsDayOff] = useState(false);
@@ -152,6 +161,8 @@ export default function TeacherAttendance() {
       setStudents(cachedAtt.students);
       setAttendance(cachedAtt.attendance);
       setBatchHistory(cachedAtt.batchHistory);
+      setSavedBaseline(cachedAtt.attendance);
+      setHasEverSaved(Object.keys(cachedAtt.attendance).length > 0);
       setLoadingStudents(false);
     }
     if (typeof navigator !== "undefined" && !navigator.onLine) {
@@ -184,6 +195,8 @@ export default function TeacherAttendance() {
       const attMap: Record<string, "present" | "absent"> = {};
       (todayAtt || []).forEach(a => { attMap[a.student_id] = a.present ? "present" : "absent"; });
       setAttendance(attMap);
+      setSavedBaseline(attMap);
+      setHasEverSaved(Object.keys(attMap).length > 0);
 
       const { data: histData } = await supabase.from("attendance").select("date, present, student_id")
         .eq("batch_id", batchId).order("date", { ascending: false }).limit(500);
@@ -269,6 +282,9 @@ export default function TeacherAttendance() {
             date: today, students, attendance, batchHistory, cachedAt: Date.now(),
           }));
         } catch { /* ignore */ }
+        setSavedBaseline(attendance);
+        setHasEverSaved(true);
+        setLastMarkerKey(k => k + 1);
         toast({ title: "📥 Saved offline", description: "Will sync when back online." });
         setSaving(false);
         return;
@@ -281,7 +297,10 @@ export default function TeacherAttendance() {
       }));
       const { error } = await supabase.from("attendance").upsert(fullRecords, { onConflict: "batch_id,student_id,date" });
       if (error) throw error;
-      toast({ title: "✅ Attendance saved!", description: `${students.length} students recorded.` });
+      setSavedBaseline(attendance);
+      setHasEverSaved(true);
+      setLastMarkerKey(k => k + 1);
+      toast({ title: hasEverSaved ? "✅ Attendance updated!" : "✅ Attendance saved!", description: `${students.length} students recorded.` });
       loadBatchData(selectedBatchId);
     } catch (err: unknown) {
       // Network failure → fall back to queue
@@ -300,6 +319,9 @@ export default function TeacherAttendance() {
             })),
           },
         });
+        setSavedBaseline(attendance);
+        setHasEverSaved(true);
+        setLastMarkerKey(k => k + 1);
         toast({ title: "📥 Saved offline", description: "Will sync when back online." });
       } else {
         toast({ title: "Error", description: msg, variant: "destructive" });
@@ -328,6 +350,44 @@ export default function TeacherAttendance() {
   const pct = students.length > 0 ? Math.round((presentCount / students.length) * 100) : 0;
   const filtered = students.filter(s => s.full_name.toLowerCase().includes(search.toLowerCase()));
 
+  // Dirty-state derivation
+  const isDirty = useMemo(() => {
+    const keys = new Set([...Object.keys(attendance), ...Object.keys(savedBaseline)]);
+    for (const k of keys) {
+      if (attendance[k] !== savedBaseline[k]) return true;
+    }
+    return false;
+  }, [attendance, savedBaseline]);
+
+  const { confirmIfDirty } = useDirtyGuard(isDirty && !isLocked);
+
+  const handleBatchSwitch = (newBatchId: string) => {
+    if (!confirmIfDirty()) return;
+    setSelectedBatchId(newBatchId);
+  };
+
+  const repeatYesterday = useCallback(async () => {
+    if (!selectedBatchId || students.length === 0 || isLocked) return;
+    const yest = new Date();
+    yest.setDate(yest.getDate() - 1);
+    const yKey = yest.toISOString().split("T")[0];
+    const ids = students.map(s => s.user_id);
+    const { data, error } = await supabase
+      .from("attendance").select("student_id, present")
+      .eq("batch_id", selectedBatchId).eq("date", yKey)
+      .in("student_id", ids);
+    if (error || !data || data.length === 0) {
+      toast({ title: "No record for yesterday", description: "Nothing to copy from.", variant: "destructive" });
+      return;
+    }
+    const map: Record<string, "present" | "absent"> = {};
+    data.forEach(r => { map[r.student_id] = r.present ? "present" : "absent"; });
+    setAttendance(prev => ({ ...prev, ...map }));
+    toast({ title: "📋 Pre-filled from yesterday", description: `${data.length} students copied — review then Save.` });
+  }, [selectedBatchId, students, isLocked, toast]);
+
+  const animateRows = students.length <= 30;
+
   if (loading) return (
     <DashboardLayout title="Attendance" role="teacher">
       <div className="flex items-center justify-center py-20"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>
@@ -341,7 +401,7 @@ export default function TeacherAttendance() {
           {batches.length === 0 ? (
             <p className="text-sm text-muted-foreground py-2">No batches assigned. Ask your admin to assign you to a batch.</p>
           ) : (
-            <Select value={selectedBatchId} onValueChange={setSelectedBatchId}>
+            <Select value={selectedBatchId} onValueChange={handleBatchSwitch}>
               <SelectTrigger className="w-full sm:w-56 h-9">
                 <SelectValue placeholder="Select batch" />
               </SelectTrigger>
@@ -407,7 +467,10 @@ export default function TeacherAttendance() {
           );
         })()}
 
-        {/* Duplicate day-off banner removed — the schedule notice above is sufficient */}
+        {/* Last marker — who saved this date most recently (RPC-driven) */}
+        {selectedBatchId && !todayIsDayOff && (
+          <LastMarkedBanner batchId={selectedBatchId} date={today} refreshKey={lastMarkerKey} />
+        )}
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           <div className="lg:col-span-2 space-y-3">
@@ -426,10 +489,28 @@ export default function TeacherAttendance() {
 
             <Card className="shadow-card border-border/50 overflow-hidden">
               <div className="p-4 border-b border-border/50 flex items-center gap-2">
+                <Button
+                  size="icon" variant="ghost"
+                  onClick={() => setRollCallOpen(true)}
+                  disabled={isLocked || students.length === 0}
+                  className="h-7 w-7 -ml-1"
+                  title="Open roll-call mode"
+                >
+                  <Maximize2 className="w-3.5 h-3.5" />
+                </Button>
                 <CalendarDays className="w-4 h-4 text-primary" />
                 <span className="font-display font-semibold text-sm">Today — {selectedBatch?.name || "No Batch"}</span>
                 <Badge variant="secondary" className="ml-auto text-xs">{todayDisplay}</Badge>
-                {isLocked && <Lock className="w-3.5 h-3.5 text-warning ml-1" />}
+                <Button
+                  size="sm" variant="outline"
+                  onClick={repeatYesterday}
+                  disabled={isLocked || students.length === 0}
+                  className="h-7 px-2 gap-1 text-xs"
+                  title="Pre-fill from yesterday's attendance"
+                >
+                  <RotateCcw className="w-3 h-3" /> Yesterday
+                </Button>
+                {isLocked && <Lock className="w-3.5 h-3.5 text-warning" />}
               </div>
 
               {loadingStudents ? (
@@ -442,7 +523,10 @@ export default function TeacherAttendance() {
               ) : (
                 <div className="divide-y divide-border/40 max-h-[440px] overflow-y-auto">
                   {filtered.map((s, i) => (
-                    <motion.div key={s.user_id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: i * 0.02 }}
+                    <motion.div key={s.user_id}
+                      initial={animateRows ? { opacity: 0 } : false}
+                      animate={animateRows ? { opacity: 1 } : { opacity: 1 }}
+                      transition={animateRows ? { delay: i * 0.02 } : { duration: 0 }}
                       className="flex items-center justify-between px-4 py-3 hover:bg-muted/30 transition-colors">
                       <button className="flex items-center gap-3 flex-1 text-left" onClick={() => openStudentAnalytics(s)}>
                         <div className="w-8 h-8 rounded-full gradient-hero flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
@@ -477,17 +561,30 @@ export default function TeacherAttendance() {
 
               <div className="p-4 border-t border-border/50">
                 <Button
-                  className={cn("w-full border-0", !isLocked ? "gradient-hero text-white shadow-primary hover:opacity-90" : "bg-muted text-muted-foreground cursor-not-allowed")}
+                  className={cn(
+                    "w-full border-0",
+                    isLocked
+                      ? "bg-muted text-muted-foreground cursor-not-allowed"
+                      : isDirty || !hasEverSaved
+                        ? "gradient-hero text-white shadow-primary hover:opacity-90"
+                        : "bg-success/10 text-success hover:bg-success/15",
+                  )}
                   onClick={saveAttendance}
-                  disabled={saving || students.length === 0 || isLocked}
+                  disabled={saving || students.length === 0 || isLocked || (hasEverSaved && !isDirty)}
                 >
                   {saving ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Saving...</>
                     : todayIsDayOff ? <><Lock className="w-4 h-4 mr-2" />Day Off — No Attendance</>
                     : !attEditable ? <><Lock className="w-4 h-4 mr-2" />Attendance Locked</>
-                    : "Save Attendance"}
+                    : hasEverSaved
+                      ? (isDirty ? "Update Attendance" : <><CheckCircle2 className="w-4 h-4 mr-2" />All changes saved</>)
+                      : "Save Attendance"}
                 </Button>
-                {todayIsDayOff && <p className="text-xs text-warning text-center mt-1.5">Today is marked as a day off.</p>}
-                {!todayIsDayOff && !attEditable && <p className="text-xs text-muted-foreground text-center mt-1.5">{attLockReason}</p>}
+                {!isLocked && isDirty && (
+                  <p className="text-xs text-warning text-center mt-1.5 flex items-center justify-center gap-1">
+                    <AlertCircle className="w-3 h-3" />
+                    You have <span className="font-bold">unsaved changes</span>{hasEverSaved ? " — tap to update" : ""}
+                  </p>
+                )}
               </div>
             </Card>
           </div>
