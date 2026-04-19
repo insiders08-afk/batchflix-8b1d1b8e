@@ -18,7 +18,7 @@ const NotFound = lazy(() => import("./pages/NotFound"));
 const AdminDashboard = lazy(() => import("./pages/AdminDashboard"));
 const AdminAttendance = lazy(() => import("./pages/AdminAttendance"));
 const AdminChatHub = lazy(() => import("./pages/AdminChatHub"));
-const BatchWorkspace = lazy(() => import("./pages/BatchWorkspace"));
+const BatchChat = lazy(() => import("./pages/BatchChat"));
 const TeacherDashboard = lazy(() => import("./pages/TeacherDashboard"));
 const TeacherAttendance = lazy(() => import("./pages/TeacherAttendance"));
 const TeacherChatHub = lazy(() => import("./pages/TeacherChatHub"));
@@ -131,7 +131,7 @@ function RoutedSuspense() {
               <Route path="/owner" element={<OwnerDashboard />} />
               <Route path="/apply/city-partner" element={<CityPartnerApply />} />
               <Route path="/install" element={<Install />} />
-              <Route path="/batch/:id" element={<BatchWorkspace />} />
+              <Route path="/batch/:id" element={<BatchChat />} />
               <Route path="/admin/chat" element={<AdminChatHub />} />
               {/* Teacher */}
               <Route path="/teacher" element={<TeacherDashboard />} />
