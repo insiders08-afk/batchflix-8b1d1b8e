@@ -5,7 +5,7 @@
  * so the UI can paint instantly during PWA cold-start / offline mode.
  *
  * Why this file exists:
- *  - Three pages (Admin/Teacher + BatchWorkspace) and the Student page were
+ *  - Two pages (Admin/Teacher) and the Student page were
  *    each rolling their own `localStorage` reads/writes with slightly different
  *    keys and no eviction strategy → caches accumulated forever and leaked
  *    between users on shared devices.
