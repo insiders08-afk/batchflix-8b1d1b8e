@@ -401,7 +401,7 @@ export default function TeacherAttendance() {
           {batches.length === 0 ? (
             <p className="text-sm text-muted-foreground py-2">No batches assigned. Ask your admin to assign you to a batch.</p>
           ) : (
-            <Select value={selectedBatchId} onValueChange={setSelectedBatchId}>
+            <Select value={selectedBatchId} onValueChange={handleBatchSwitch}>
               <SelectTrigger className="w-full sm:w-56 h-9">
                 <SelectValue placeholder="Select batch" />
               </SelectTrigger>
@@ -467,7 +467,10 @@ export default function TeacherAttendance() {
           );
         })()}
 
-        {/* Duplicate day-off banner removed — the schedule notice above is sufficient */}
+        {/* Last marker — who saved this date most recently (RPC-driven) */}
+        {selectedBatchId && !todayIsDayOff && (
+          <LastMarkedBanner batchId={selectedBatchId} date={today} refreshKey={lastMarkerKey} />
+        )}
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           <div className="lg:col-span-2 space-y-3">
@@ -486,10 +489,28 @@ export default function TeacherAttendance() {
 
             <Card className="shadow-card border-border/50 overflow-hidden">
               <div className="p-4 border-b border-border/50 flex items-center gap-2">
+                <Button
+                  size="icon" variant="ghost"
+                  onClick={() => setRollCallOpen(true)}
+                  disabled={isLocked || students.length === 0}
+                  className="h-7 w-7 -ml-1"
+                  title="Open roll-call mode"
+                >
+                  <Maximize2 className="w-3.5 h-3.5" />
+                </Button>
                 <CalendarDays className="w-4 h-4 text-primary" />
                 <span className="font-display font-semibold text-sm">Today — {selectedBatch?.name || "No Batch"}</span>
                 <Badge variant="secondary" className="ml-auto text-xs">{todayDisplay}</Badge>
-                {isLocked && <Lock className="w-3.5 h-3.5 text-warning ml-1" />}
+                <Button
+                  size="sm" variant="outline"
+                  onClick={repeatYesterday}
+                  disabled={isLocked || students.length === 0}
+                  className="h-7 px-2 gap-1 text-xs"
+                  title="Pre-fill from yesterday's attendance"
+                >
+                  <RotateCcw className="w-3 h-3" /> Yesterday
+                </Button>
+                {isLocked && <Lock className="w-3.5 h-3.5 text-warning" />}
               </div>
 
               {loadingStudents ? (
@@ -502,7 +523,10 @@ export default function TeacherAttendance() {
               ) : (
                 <div className="divide-y divide-border/40 max-h-[440px] overflow-y-auto">
                   {filtered.map((s, i) => (
-                    <motion.div key={s.user_id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: i * 0.02 }}
+                    <motion.div key={s.user_id}
+                      initial={animateRows ? { opacity: 0 } : false}
+                      animate={animateRows ? { opacity: 1 } : { opacity: 1 }}
+                      transition={animateRows ? { delay: i * 0.02 } : { duration: 0 }}
                       className="flex items-center justify-between px-4 py-3 hover:bg-muted/30 transition-colors">
                       <button className="flex items-center gap-3 flex-1 text-left" onClick={() => openStudentAnalytics(s)}>
                         <div className="w-8 h-8 rounded-full gradient-hero flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
@@ -537,17 +561,30 @@ export default function TeacherAttendance() {
 
               <div className="p-4 border-t border-border/50">
                 <Button
-                  className={cn("w-full border-0", !isLocked ? "gradient-hero text-white shadow-primary hover:opacity-90" : "bg-muted text-muted-foreground cursor-not-allowed")}
+                  className={cn(
+                    "w-full border-0",
+                    isLocked
+                      ? "bg-muted text-muted-foreground cursor-not-allowed"
+                      : isDirty || !hasEverSaved
+                        ? "gradient-hero text-white shadow-primary hover:opacity-90"
+                        : "bg-success/10 text-success hover:bg-success/15",
+                  )}
                   onClick={saveAttendance}
-                  disabled={saving || students.length === 0 || isLocked}
+                  disabled={saving || students.length === 0 || isLocked || (hasEverSaved && !isDirty)}
                 >
                   {saving ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Saving...</>
                     : todayIsDayOff ? <><Lock className="w-4 h-4 mr-2" />Day Off — No Attendance</>
                     : !attEditable ? <><Lock className="w-4 h-4 mr-2" />Attendance Locked</>
-                    : "Save Attendance"}
+                    : hasEverSaved
+                      ? (isDirty ? "Update Attendance" : <><CheckCircle2 className="w-4 h-4 mr-2" />All changes saved</>)
+                      : "Save Attendance"}
                 </Button>
-                {todayIsDayOff && <p className="text-xs text-warning text-center mt-1.5">Today is marked as a day off.</p>}
-                {!todayIsDayOff && !attEditable && <p className="text-xs text-muted-foreground text-center mt-1.5">{attLockReason}</p>}
+                {!isLocked && isDirty && (
+                  <p className="text-xs text-warning text-center mt-1.5 flex items-center justify-center gap-1">
+                    <AlertCircle className="w-3 h-3" />
+                    You have <span className="font-bold">unsaved changes</span>{hasEverSaved ? " — tap to update" : ""}
+                  </p>
+                )}
               </div>
             </Card>
           </div>
