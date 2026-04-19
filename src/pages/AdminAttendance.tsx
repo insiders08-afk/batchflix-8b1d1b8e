@@ -389,7 +389,7 @@ export default function AdminAttendance() {
           {loadingBatches ? (
             <div className="w-56 h-9 bg-muted animate-pulse rounded-md" />
           ) : (
-            <Select value={selectedBatchId} onValueChange={setSelectedBatchId}>
+            <Select value={selectedBatchId} onValueChange={handleBatchSwitch}>
               <SelectTrigger className="w-full sm:w-56 h-9">
                 <SelectValue placeholder="Select batch" />
               </SelectTrigger>
@@ -455,7 +455,10 @@ export default function AdminAttendance() {
           );
         })()}
 
-        {/* Intentionally removed: duplicate day-off banner was redundant with the schedule status notice above */}
+        {/* Last marker — who saved this date most recently (RPC-driven) */}
+        {selectedBatchId && !todayIsDayOff && (
+          <LastMarkedBanner batchId={selectedBatchId} date={today} refreshKey={lastMarkerKey} />
+        )}
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           <div className="lg:col-span-2 space-y-3">
@@ -474,10 +477,28 @@ export default function AdminAttendance() {
 
             <Card className="shadow-card border-border/50 overflow-hidden">
               <div className="p-4 border-b border-border/50 flex items-center gap-2">
+                <Button
+                  size="icon" variant="ghost"
+                  onClick={() => setRollCallOpen(true)}
+                  disabled={isLocked || students.length === 0}
+                  className="h-7 w-7 -ml-1"
+                  title="Open roll-call mode"
+                >
+                  <Maximize2 className="w-3.5 h-3.5" />
+                </Button>
                 <CalendarDays className="w-4 h-4 text-primary" />
                 <span className="font-display font-semibold text-sm">Today — {selectedBatch?.name || "No Batch"}</span>
                 <Badge variant="secondary" className="ml-auto text-xs">{todayDisplay}</Badge>
-                {!attEditable && <Lock className="w-3.5 h-3.5 text-warning ml-1" />}
+                <Button
+                  size="sm" variant="outline"
+                  onClick={repeatYesterday}
+                  disabled={isLocked || students.length === 0}
+                  className="h-7 px-2 gap-1 text-xs"
+                  title="Pre-fill from yesterday's attendance"
+                >
+                  <RotateCcw className="w-3 h-3" /> Yesterday
+                </Button>
+                {!attEditable && <Lock className="w-3.5 h-3.5 text-warning" />}
               </div>
 
               {loadingStudents ? (
@@ -490,7 +511,10 @@ export default function AdminAttendance() {
               ) : (
                 <div className="divide-y divide-border/40 max-h-[420px] overflow-y-auto">
                   {filtered.map((s, i) => (
-                    <motion.div key={s.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: i * 0.02 }}
+                    <motion.div key={s.id}
+                      initial={animateRows ? { opacity: 0 } : false}
+                      animate={animateRows ? { opacity: 1 } : { opacity: 1 }}
+                      transition={animateRows ? { delay: i * 0.02 } : { duration: 0 }}
                       className="flex items-center justify-between px-4 py-3 hover:bg-muted/40 transition-colors">
                       <button className="flex items-center gap-3 flex-1 text-left" onClick={() => openStudentAnalytics(s)}>
                         <div className="w-8 h-8 rounded-full gradient-hero flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
