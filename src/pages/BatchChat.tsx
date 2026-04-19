@@ -98,7 +98,7 @@ function mergeFetchedBatchMessages(fetched: ChatMessage[], existing: ChatMessage
   return sortBatchMessages([...fetched, ...pendingOptimistic]);
 }
 
-export default function BatchWorkspace() {
+export default function BatchChat() {
   const { id: batchId } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -203,7 +203,7 @@ export default function BatchWorkspace() {
           setHasMoreMsgs(msgsRes.data.length === BATCH_MSG_PAGE_SIZE);
         }
       } catch (err) {
-        console.error("[BatchWorkspace] init error:", err);
+        console.error("[BatchChat] init error:", err);
       } finally {
         setCriticalLoading(false);
       }

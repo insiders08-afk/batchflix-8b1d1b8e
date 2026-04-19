@@ -1,5 +1,5 @@
 /**
- * Shared chat utilities used by BatchWorkspace and DMConversation.
+ * Shared chat utilities used by BatchChat and DMConversation.
  */
 
 /** Format a message timestamp for display in chat bubbles */
