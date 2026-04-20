@@ -25,6 +25,7 @@ import { formatChatDate, getMessagePreview, roleLabel } from "@/lib/chatUtils";
 import { useAuth } from "@/contexts/AuthContext";
 import { getOtherRoleFromDmType } from "@/types/chat";
 import type { DmType } from "@/types/chat";
+import { loadHubCache, saveHubCache } from "@/lib/hubCache";
 
 const MAX_FILE_SIZE_MB = 10;
 
@@ -49,10 +50,12 @@ export default function DMConversation() {
   const currentUserName = authUser?.userName ?? "";
   const currentUserRole = authUser?.userRole ?? "student";
   const instituteCode = authUser?.instituteCode ?? "";
+  const metaCacheKey = `dm_meta_${conversationId}`;
+  const cachedMeta = loadHubCache<{ otherUserName: string; otherUserRole: string }>(metaCacheKey);
 
-  const [otherUserName, setOtherUserName] = useState("...");
-  const [otherUserRole, setOtherUserRole] = useState("");
-  const [pageLoading, setPageLoading] = useState(true);
+  const [otherUserName, setOtherUserName] = useState(cachedMeta?.otherUserName ?? "...");
+  const [otherUserRole, setOtherUserRole] = useState(cachedMeta?.otherUserRole ?? "");
+  const [pageLoading, setPageLoading] = useState(false);
 
   // Chat UI state
   const [chatInput, setChatInput] = useState("");
@@ -74,32 +77,45 @@ export default function DMConversation() {
   useEffect(() => {
     if (!currentUserId || !conversationId) return;
     const init = async () => {
-      const { data: conv } = await supabase
-        .from("direct_conversations")
-        .select("admin_id, other_user_id, dm_type")
-        .eq("id", conversationId)
-        .single();
-
-      if (conv) {
-        const isAdminSide = conv.admin_id === currentUserId;
-        const otherId = isAdminSide ? conv.other_user_id : conv.admin_id;
-        const expectedOtherRole = getOtherRoleFromDmType(conv.dm_type as DmType, isAdminSide);
-
-        const { data: otherProfile } = await supabase
-          .from("profiles")
-          .select("full_name")
-          .eq("user_id", otherId)
-          .eq("role", expectedOtherRole as any)
-          .maybeSingle();
-
-        setOtherUserName(otherProfile?.full_name || "User");
-        setOtherUserRole(expectedOtherRole);
+      if (typeof navigator !== "undefined" && !navigator.onLine) {
+        setPageLoading(false);
+        return;
       }
 
-      setPageLoading(false);
+      setPageLoading(true);
+      try {
+        const { data: conv } = await supabase
+          .from("direct_conversations")
+          .select("admin_id, other_user_id, dm_type")
+          .eq("id", conversationId)
+          .single();
+
+        if (conv) {
+          const isAdminSide = conv.admin_id === currentUserId;
+          const otherId = isAdminSide ? conv.other_user_id : conv.admin_id;
+          const expectedOtherRole = getOtherRoleFromDmType(conv.dm_type as DmType, isAdminSide);
+
+          const { data: otherProfile } = await supabase
+            .from("profiles")
+            .select("full_name")
+            .eq("user_id", otherId)
+            .eq("role", expectedOtherRole as any)
+            .maybeSingle();
+
+          const nextMeta = {
+            otherUserName: otherProfile?.full_name || "User",
+            otherUserRole: expectedOtherRole,
+          };
+          setOtherUserName(nextMeta.otherUserName);
+          setOtherUserRole(nextMeta.otherUserRole);
+          saveHubCache(metaCacheKey, nextMeta);
+        }
+      } finally {
+        setPageLoading(false);
+      }
     };
     init();
-  }, [conversationId, currentUserId]);
+  }, [conversationId, currentUserId, metaCacheKey]);
 
   // ── Messages hook ───────────────────────────────────────────
   const {
