@@ -143,29 +143,31 @@ export default function BatchChat() {
     };
   }, []);
 
-  // Mark batch as read on mount and tab focus + zero unread badge in hub cache
+  // Mark batch as read on mount and tab focus + zero unread badge in hub cache.
+  // A7 fix: debounce mark-read calls so rapid tab toggling doesn't fire 10 RPCs.
   const queryClient = useQueryClient();
+  const lastMarkReadRef = useRef(0);
   useEffect(() => {
     if (!batchId || !currentUserId) return;
     const markRead = async () => {
-      if (document.visibilityState === "visible") {
-        await supabase.rpc("mark_batch_read", { p_batch_id: batchId });
-        const ic = authUser?.instituteCode ?? "";
-        if (ic) {
-          queryClient.setQueryData<Record<string, number>>(
-            ["batch-unread-counts", currentUserId, ic],
-            (prev) => ({ ...(prev ?? {}), [batchId]: 0 })
-          );
-          queryClient.invalidateQueries({
-            queryKey: ["batch-unread-counts", currentUserId, ic],
-          });
-        }
+      if (document.visibilityState !== "visible") return;
+      const now = Date.now();
+      if (now - lastMarkReadRef.current < 5000) return; // 5s debounce
+      lastMarkReadRef.current = now;
+      await supabase.rpc("mark_batch_read", { p_batch_id: batchId });
+      const ic = authUser?.instituteCode ?? "";
+      if (ic) {
+        queryClient.setQueryData<Record<string, number>>(
+          ["batch-unread-counts", currentUserId, ic],
+          (prev) => ({ ...(prev ?? {}), [batchId]: 0 })
+        );
+        queryClient.invalidateQueries({
+          queryKey: ["batch-unread-counts", currentUserId, ic],
+        });
       }
     };
     void markRead();
-    const handleVisibilityChange = () => {
-      void markRead();
-    };
+    const handleVisibilityChange = () => { void markRead(); };
     document.addEventListener("visibilitychange", handleVisibilityChange);
     return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
   }, [batchId, currentUserId, authUser?.instituteCode, queryClient]);
@@ -212,10 +214,14 @@ export default function BatchChat() {
   }, [batchId, currentUserId, batchCacheKey]);
 
   // Load older batch messages (scroll-up pagination)
+  // A4 fix: read latest `messages` via a ref so this callback's identity stays
+  // stable across renders — otherwise the scroll handler re-binds on every msg.
+  const messagesRefBatch = useRef<ChatMessage[]>(messages);
+  messagesRefBatch.current = messages;
   const loadOlderBatchMessages = useCallback(async () => {
     if (!batchId || loadingMoreMsgs || !hasMoreMsgs) return;
     setLoadingMoreMsgs(true);
-    const oldest = messages[0];
+    const oldest = messagesRefBatch.current[0];
     if (!oldest) { setLoadingMoreMsgs(false); return; }
 
     const { data } = await supabase
@@ -238,7 +244,7 @@ export default function BatchChat() {
       setHasMoreMsgs(false);
     }
     setLoadingMoreMsgs(false);
-  }, [batchId, currentUserId, messages, loadingMoreMsgs, hasMoreMsgs]);
+  }, [batchId, currentUserId, loadingMoreMsgs, hasMoreMsgs]);
 
   // Realtime chat subscription
   useEffect(() => {
@@ -465,6 +471,17 @@ export default function BatchChat() {
     const offline = typeof navigator !== "undefined" && !navigator.onLine;
     if (offline) {
       if (fileData) {
+        // A5 fix: clean up the orphan upload — the file was already pushed to
+        // chat-files/ before we knew we were offline. Drop the optimistic bubble
+        // and remove the storage object so we don't leak bytes.
+        try {
+          const url = new URL(fileData.url);
+          const idx = url.pathname.indexOf("/chat-files/");
+          if (idx >= 0) {
+            const objectPath = decodeURIComponent(url.pathname.slice(idx + "/chat-files/".length));
+            await supabase.storage.from("chat-files").remove([objectPath]);
+          }
+        } catch { /* ignore cleanup failure */ }
         setMessages((prev) => {
           const next = prev.filter((m) => m.id !== optimisticId);
           saveCachedMessages(batchCacheKey, next);
@@ -547,6 +564,7 @@ export default function BatchChat() {
             body: msgText,
             url: `/batch/${batchId}`,
             target_user_ids: studentIds,
+            tag: `bh-batch-${batchId}`,
           });
         }
       }
@@ -558,6 +576,7 @@ export default function BatchChat() {
           body: msgText,
           url: `/batch/${batchId}`,
           target_user_ids: [batch.teacher_id],
+          tag: `bh-batch-${batchId}`,
         });
       }
     } else {

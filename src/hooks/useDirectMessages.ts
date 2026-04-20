@@ -108,10 +108,16 @@ export function useDirectMessages({
   }, [conversationId, currentUserId, cacheKey]);
 
   // ── Load older messages (scroll-up pagination) ────────────
+  // A4 fix: read latest `messages` via a ref so this callback's identity is stable.
+  // Previously it changed on every state update, which thrashed scroll handlers
+  // and re-bound effects in DMConversation.
+  const messagesRef = useRef<DirectMessage[]>(messages);
+  messagesRef.current = messages;
+
   const loadOlderMessages = useCallback(async () => {
     if (!conversationId || loadingMore || !hasMore) return;
     setLoadingMore(true);
-    const oldest = messages[0];
+    const oldest = messagesRef.current[0];
     if (!oldest) { setLoadingMore(false); return; }
 
     const { data } = await supabase
@@ -131,7 +137,7 @@ export function useDirectMessages({
       setHasMore(false);
     }
     setLoadingMore(false);
-  }, [conversationId, currentUserId, messages, loadingMore, hasMore]);
+  }, [conversationId, currentUserId, loadingMore, hasMore]);
 
   // LOW-08: Use ref for fetchMessages to avoid re-subscription on reference change
   const fetchMessagesRef = useRef(fetchMessages);
@@ -310,7 +316,17 @@ export function useDirectMessages({
         const offline = typeof navigator !== "undefined" && !navigator.onLine;
         if (offline) {
           if (fileData) {
-            // Files cannot be queued — drop optimistic and notify
+            // A5 fix: file was already uploaded above. We can't queue the file
+            // payload, so clean up the orphaned blob in storage so chat-files/
+            // doesn't accumulate dead bytes. Best-effort — failure is fine.
+            try {
+              const url = new URL(fileData.url);
+              const idx = url.pathname.indexOf("/chat-files/");
+              if (idx >= 0) {
+                const objectPath = decodeURIComponent(url.pathname.slice(idx + "/chat-files/".length));
+                await supabase.storage.from("chat-files").remove([objectPath]);
+              }
+            } catch { /* ignore cleanup failure */ }
             setMessages((prev) => prev.filter((m) => m.id !== optimisticId));
             toast({
               title: "You're offline",

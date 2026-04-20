@@ -94,8 +94,11 @@ async function fetchDMConversations(
 export function useDMList({ currentUserId, currentUserRole, instituteCode }: UseDMListOptions) {
   const queryClient = useQueryClient();
   const channelRef = useRef<ReturnType<typeof supabase.channel>[]>([]);
-  // CRIT-03 fix: debounce refetches to prevent double unread count
-  const lastRefetchRef = useRef(0);
+  // B7 fix: separate debounce timestamps for INSERT vs UPDATE so a brand-new
+  // conversation's INSERT + immediate UPDATE (from the trigger) don't
+  // collapse into one event under flaky networks → unread badge stays accurate.
+  const lastInsertRefetchRef = useRef(0);
+  const lastUpdateRefetchRef = useRef(0);
 
   const queryKey = useMemo(
     () => ["dm-list", currentUserId, currentUserRole, instituteCode],
@@ -146,11 +149,19 @@ export function useDMList({ currentUserId, currentUserRole, instituteCode }: Use
     queryClient.invalidateQueries({ queryKey });
   }, [queryClient, queryKey]);
 
-  // CRIT-03: Debounced refetch to prevent double unread count from racing listeners
-  const debouncedRefetch = useCallback(() => {
+  // B7: separate debounces for INSERT and UPDATE so consecutive events
+  // for the same conversation (typical of a brand-new DM) both reach us.
+  const debouncedRefetchInsert = useCallback(() => {
     const now = Date.now();
-    if (now - lastRefetchRef.current < 500) return;
-    lastRefetchRef.current = now;
+    if (now - lastInsertRefetchRef.current < 500) return;
+    lastInsertRefetchRef.current = now;
+    refetch();
+  }, [refetch]);
+
+  const debouncedRefetchUpdate = useCallback(() => {
+    const now = Date.now();
+    if (now - lastUpdateRefetchRef.current < 500) return;
+    lastUpdateRefetchRef.current = now;
     refetch();
   }, [refetch]);
 
@@ -198,8 +209,9 @@ export function useDMList({ currentUserId, currentUserRole, instituteCode }: Use
         }, (payload) => {
           if (payload.eventType === "UPDATE") {
             handleConversationUpdate(payload as { new: Record<string, unknown> });
+            debouncedRefetchUpdate();
           } else {
-            debouncedRefetch();
+            debouncedRefetchInsert();
           }
         })
         .subscribe();
@@ -212,8 +224,9 @@ export function useDMList({ currentUserId, currentUserRole, instituteCode }: Use
         }, (payload) => {
           if (payload.eventType === "UPDATE") {
             handleConversationUpdate(payload as { new: Record<string, unknown> });
+            debouncedRefetchUpdate();
           } else {
-            debouncedRefetch();
+            debouncedRefetchInsert();
           }
         })
         .subscribe();
@@ -229,8 +242,9 @@ export function useDMList({ currentUserId, currentUserRole, instituteCode }: Use
         }, (payload) => {
           if (payload.eventType === "UPDATE") {
             handleConversationUpdate(payload as { new: Record<string, unknown> });
+            debouncedRefetchUpdate();
           } else {
-            debouncedRefetch();
+            debouncedRefetchInsert();
           }
         })
         .subscribe();
@@ -243,7 +257,7 @@ export function useDMList({ currentUserId, currentUserRole, instituteCode }: Use
       channels.forEach((ch) => supabase.removeChannel(ch));
       channelRef.current = [];
     };
-  }, [currentUserId, currentUserRole, instituteCode, debouncedRefetch, handleConversationUpdate]);
+  }, [currentUserId, currentUserRole, instituteCode, debouncedRefetchInsert, debouncedRefetchUpdate, handleConversationUpdate]);
 
   // Refetch on tab visibility
   useEffect(() => {

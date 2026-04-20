@@ -418,6 +418,7 @@ Deno.serve(async (req) => {
       body: bodyText,
       url,
       target_user_ids,
+      tag,
     } = bodyJson;
 
     if (!institute_code || !title) {
@@ -472,6 +473,8 @@ Deno.serve(async (req) => {
       url: url || "/",
       icon: "/icons/pwa-192x192.png",
       badge: "/icons/pwa-192x192.png",
+      // B8: per-thread tag passed through so multiple notifications stack on-device
+      tag: typeof tag === "string" && tag.length > 0 ? tag : undefined,
     });
 
     const results = await Promise.allSettled(

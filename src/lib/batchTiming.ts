@@ -35,6 +35,16 @@ export function parseBatchTiming(schedule: string | null): BatchTiming | null {
   return null;
 }
 
+/**
+ * B2 helper: returns true if the schedule is non-empty but unstructured
+ * (legacy free-text). Caller can surface a warning so the admin upgrades
+ * the batch to a structured schedule (which is what enables the time lock).
+ */
+export function isLegacyUnstructuredSchedule(schedule: string | null): boolean {
+  if (!schedule) return false;
+  return parseBatchTiming(schedule) === null;
+}
+
 function to24(h: number, amPm: "AM" | "PM"): number {
   if (amPm === "AM") return h === 12 ? 0 : h;
   return h === 12 ? 12 : h + 12;

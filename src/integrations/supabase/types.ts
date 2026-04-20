@@ -153,6 +153,33 @@ export type Database = {
         }
         Relationships: []
       }
+      attendance_tombstones: {
+        Row: {
+          batch_id: string
+          date: string
+          deleted_at: string
+          deleted_by: string | null
+          id: string
+          student_id: string
+        }
+        Insert: {
+          batch_id: string
+          date: string
+          deleted_at?: string
+          deleted_by?: string | null
+          id?: string
+          student_id: string
+        }
+        Update: {
+          batch_id?: string
+          date?: string
+          deleted_at?: string
+          deleted_by?: string | null
+          id?: string
+          student_id?: string
+        }
+        Relationships: []
+      }
       batch_applications: {
         Row: {
           applied_at: string
@@ -1057,6 +1084,7 @@ export type Database = {
       }
       mark_batch_read: { Args: { p_batch_id: string }; Returns: undefined }
       mark_dm_read: { Args: { p_conversation_id: string }; Returns: undefined }
+      purge_old_attendance_audit: { Args: { p_days?: number }; Returns: number }
     }
     Enums: {
       app_role:
