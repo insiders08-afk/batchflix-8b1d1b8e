@@ -235,11 +235,11 @@ export default function AdminAttendance() {
             records,
           },
         });
-        try {
-          localStorage.setItem(ATT_CACHE_PREFIX + selectedBatchId, JSON.stringify({
+        if (userId) {
+          writeTodayAtt<Profile>("admin", userId, selectedBatchId, {
             date: today, students, attendance, history, cachedAt: Date.now(),
-          } satisfies CachedAtt));
-        } catch { /* ignore */ }
+          });
+        }
         setSavedBaseline(attendance);
         setHasEverSaved(true);
         setLastMarkerKey(k => k + 1);
