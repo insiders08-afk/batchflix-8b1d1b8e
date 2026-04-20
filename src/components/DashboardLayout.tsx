@@ -20,6 +20,7 @@ import OfflineBanner from "@/components/OfflineBanner";
 import { SyncIndicator } from "@/components/SyncIndicator";
 import { useDMList } from "@/hooks/useDMList";
 import { useAuth } from "@/contexts/AuthContext";
+import { confirmGlobalDirty } from "@/hooks/useDirtyGuard";
 
 const LAST_ROUTE_KEY = "bh_last_route";
 
@@ -194,6 +195,8 @@ export default function DashboardLayout({ children, title, role = "admin" }: Das
   }, [isAdmin, authChecked, instituteCode]);
 
   const handleLogout = async () => {
+    // B14: block silent data loss when leaving via the sidebar logout button.
+    if (!confirmGlobalDirty("You have unsaved attendance changes. Logout anyway?")) return;
     localStorage.removeItem("batchhub_active_institute");
     const { clearSessionPersistence } = await import("@/lib/sessionPersistence");
     const { purgeAllAttendanceCaches } = await import("@/lib/attendanceCache");
@@ -244,7 +247,15 @@ export default function DashboardLayout({ children, title, role = "admin" }: Das
             <Link
               key={`${item.path}-${item.label}`}
               to={item.path}
-              onClick={() => setMobileOpen(false)}
+              onClick={(e) => {
+                // B14: same dirty-guard for sidebar nav links so users can't
+                // silently leave the attendance page with unsaved changes.
+                if (!confirmGlobalDirty()) {
+                  e.preventDefault();
+                  return;
+                }
+                setMobileOpen(false);
+              }}
               className={cn(
                 "items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all group",
                 // Only show on desktop if it's a bottom-nav item (mobile has it in BottomNav)

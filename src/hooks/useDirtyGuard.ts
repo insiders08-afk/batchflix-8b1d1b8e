@@ -3,18 +3,43 @@ import { useEffect, useRef } from "react";
 /**
  * Prompt the user before leaving the page when they have unsaved attendance.
  *
- * Covers two exit vectors:
+ * Covers three exit vectors:
  *  - Browser tab close / refresh / external nav → `beforeunload` event
- *  - In-app navigation (router) → consumers should call `confirmIfDirty()`
- *    before pushing a new route. The hook returns the helper.
+ *  - Browser back/forward / Android swipe-back → `popstate`
+ *  - In-app navigation (router Links, logout button) → consumers should call
+ *    `confirmIfDirty()` OR `isAnyAttendanceDirty()` (module-level helper) so
+ *    sidebar/back-button nav can also block silently lost changes.
  *
  * B14 hardening:
- *  - Reads `message` via a ref so the listener never re-binds (the listener
- *    only depends on the dirty bit, not the human-readable message string).
+ *  - Reads `message` via a ref so the listener never re-binds.
  *  - Listens to `popstate` so the browser's back/forward button also
  *    triggers a confirm — previously you could lose unsaved changes by
  *    swiping back on Android with no warning.
+ *  - Maintains a tiny module-level Set of dirty instances so unrelated UI
+ *    (sidebar logout, header refresh, parent route) can ask
+ *    `isAnyAttendanceDirty()` without prop-drilling.
  */
+
+// Module-level registry — every dirty hook instance registers itself so any
+// other component (logout button, sidebar nav) can check "is anyone holding
+// unsaved changes right now?" without prop-drilling.
+const dirtyInstances = new Set<symbol>();
+
+export function isAnyAttendanceDirty(): boolean {
+  return dirtyInstances.size > 0;
+}
+
+/**
+ * Returns true if no unsaved changes OR the user confirmed leaving anyway.
+ * Use from sidebar/logout/header components that don't own the dirty state.
+ */
+export function confirmGlobalDirty(
+  message = "You have unsaved attendance changes. Leave anyway?"
+): boolean {
+  if (!isAnyAttendanceDirty()) return true;
+  return window.confirm(message);
+}
+
 export function useDirtyGuard(
   isDirty: boolean,
   message = "You have unsaved attendance changes. Leave anyway?"
@@ -23,6 +48,16 @@ export function useDirtyGuard(
   dirtyRef.current = isDirty;
   const messageRef = useRef(message);
   messageRef.current = message;
+  const tokenRef = useRef<symbol>(Symbol("dirty-guard-instance"));
+
+  // Register/deregister this instance with the module-level set so
+  // `isAnyAttendanceDirty()` works for unrelated components.
+  useEffect(() => {
+    const tok = tokenRef.current;
+    if (isDirty) dirtyInstances.add(tok);
+    else dirtyInstances.delete(tok);
+    return () => { dirtyInstances.delete(tok); };
+  }, [isDirty]);
 
   useEffect(() => {
     const handler = (e: BeforeUnloadEvent) => {
