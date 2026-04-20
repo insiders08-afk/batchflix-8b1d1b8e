@@ -15,6 +15,13 @@ interface PushPayload {
   batch_id?: string;
   /** Send to explicit user IDs list */
   target_user_ids?: string[];
+  /**
+   * Notification group tag — multiple notifications with the same tag
+   * REPLACE each other on the device. Use a per-conversation / per-batch
+   * value (e.g. `bh-batch-<id>`) so concurrent messages from different
+   * threads stack instead of collapsing into one.
+   */
+  tag?: string;
 }
 
 export async function sendPushNotification(payload: PushPayload): Promise<void> {

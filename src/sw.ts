@@ -15,7 +15,15 @@ cleanupOutdatedCaches();
 // Without this, deep-link refreshes while offline show the browser's offline page.
 registerRoute(
   new NavigationRoute(createHandlerBoundToURL("/index.html"), {
-    denylist: [/^\/api\//, /\/_/, /\.[^\/]+$/], // skip API, internal, and asset paths
+    // Skip API, Vite internal, asset, and Supabase auth callback paths so OAuth /
+    // password-recovery / email-confirm deep-links pass through to the actual handler
+    // instead of being swallowed by the SPA shell on the very first SW activation.
+    denylist: [
+      /^\/api\//,
+      /\/_/,
+      /\.[^\/]+$/,
+      /^\/auth\//, // auth role pages are SPA routes, but anything under /auth/callback is reserved
+    ],
   })
 );
 
@@ -113,13 +121,18 @@ self.addEventListener("push", (event: PushEvent) => {
   }
 
   const title = payload.title || "BatchHub";
+  // B8 fix: per-conversation/per-batch tag so multiple incoming pushes stack
+  // instead of replacing each other. Falls back to a stable global tag only
+  // when no specific scope is provided by the sender.
+  const payloadTag = (payload as { tag?: string }).tag;
+  const tag = payloadTag && typeof payloadTag === "string" ? payloadTag : "batchhub-default";
   const options: NotificationOptions = {
     body: payload.body || "",
     icon: payload.icon || "/icons/pwa-192x192.png",
     badge: "/icons/pwa-192x192.png",
     data: { url: payload.url || "/" },
     requireInteraction: false,
-    tag: "batchhub-announcement",
+    tag,
   };
 
   event.waitUntil(self.registration.showNotification(title, options));

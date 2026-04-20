@@ -57,19 +57,29 @@ export function usePushNotifications(instituteCode: string | null) {
         const p256dh = btoa(String.fromCharCode(...new Uint8Array(key)));
         const authKey = btoa(String.fromCharCode(...new Uint8Array(auth)));
 
-        // Upsert subscription — delete old one for this endpoint first, then insert
+        // A6 fix: only delete this device's prior subscription (matched by endpoint),
+        // never every subscription for the user — otherwise registering on a phone
+        // unsubscribes the laptop and vice versa.
         await supabase
           .from("push_subscriptions")
           .delete()
-          .eq("user_id", session.user.id);
+          .eq("user_id", session.user.id)
+          .eq("endpoint", sub.endpoint);
 
-        await supabase.from("push_subscriptions").insert({
-          user_id: session.user.id,
-          institute_code: instituteCode,
-          endpoint: sub.endpoint,
-          p256dh,
-          auth_key: authKey,
-        });
+        // Upsert keyed on (user_id, endpoint) — composite uniqueness in DB allows
+        // one row per device per user.
+        await supabase
+          .from("push_subscriptions")
+          .upsert(
+            {
+              user_id: session.user.id,
+              institute_code: instituteCode,
+              endpoint: sub.endpoint,
+              p256dh,
+              auth_key: authKey,
+            },
+            { onConflict: "user_id,endpoint" }
+          );
 
         registered.current = true;
       } catch (err) {
