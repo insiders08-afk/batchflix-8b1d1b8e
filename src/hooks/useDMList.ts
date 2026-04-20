@@ -122,7 +122,7 @@ export function useDMList({ currentUserId, currentUserRole, instituteCode }: Use
     staleTime: DM_STALE_TIME,
     gcTime: 10 * 60 * 1000,
     enabled: !!currentUserId && !!instituteCode,
-    initialData: cachedList.length > 0 ? cachedList : undefined,
+    initialData: cachedList,
     initialDataUpdatedAt: 0, // mark stale so a background refetch still fires when online
     refetchOnWindowFocus: true,
   });

@@ -44,7 +44,7 @@ export function useBatchUnreadCounts(userId: string, instituteCode: string) {
     staleTime: STALE_TIME,
     gcTime: 10 * 60 * 1000,
     enabled: !!userId && !!instituteCode,
-    initialData: Object.keys(cached).length > 0 ? cached : undefined,
+    initialData: cached,
     initialDataUpdatedAt: 0,
   });
 
