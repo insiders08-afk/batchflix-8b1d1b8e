@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { CalendarDays, CheckCircle2, XCircle, TrendingUp, Loader2, CalendarCheck } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
+import { readStudentAtt, writeStudentAtt } from "@/lib/attendanceCache";
 
 interface AttendanceRecord {
   date: string;
@@ -24,28 +25,6 @@ interface BatchInfo {
 const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 const currentYear = new Date().getFullYear();
 const YEARS = Array.from({ length: 5 }, (_, i) => currentYear - i);
-
-// ── Offline cache: student's own attendance for today + recent history ─────
-// Survives PWA cold-starts so the page paints real data before any network
-// request resolves (or at all when offline).
-const STUDENT_ATT_CACHE_KEY = "bh_student_attendance";
-type CachedStudentAtt = {
-  userId: string;
-  batches: BatchInfo[];
-  records: AttendanceRecord[];
-  cachedAt: number;
-};
-function readStudentAttCache(userId: string): CachedStudentAtt | null {
-  try {
-    const raw = localStorage.getItem(STUDENT_ATT_CACHE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as CachedStudentAtt;
-    return parsed.userId === userId ? parsed : null;
-  } catch { return null; }
-}
-function writeStudentAttCache(payload: CachedStudentAtt) {
-  try { localStorage.setItem(STUDENT_ATT_CACHE_KEY, JSON.stringify(payload)); } catch { /* quota */ }
-}
 
 function getDaysInMonth(year: number, month: number) {
   return new Date(year, month + 1, 0).getDate();
@@ -73,7 +52,7 @@ export default function StudentAttendance() {
       if (!user) { setLoading(false); return; }
 
       // 1. Hydrate from cache immediately so the page paints offline-first.
-      const cached = readStudentAttCache(user.id);
+      const cached = readStudentAtt<BatchInfo, AttendanceRecord>(user.id);
       if (cached) {
         setBatches(cached.batches);
         if (cached.batches.length === 1) setSelectedBatch(cached.batches[0].id);
@@ -116,7 +95,7 @@ export default function StudentAttendance() {
       setLoading(false);
 
       // 3. Persist freshest snapshot for the next cold start.
-      writeStudentAttCache({
+      writeStudentAtt({
         userId: user.id,
         batches: nextBatches,
         records: nextRecords,

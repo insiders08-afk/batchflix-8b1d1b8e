@@ -20,6 +20,7 @@ import { enqueueTask } from "@/lib/offlineQueue";
 import { useDirtyGuard } from "@/hooks/useDirtyGuard";
 import { isDayOff, loadDayOffDatesForBatch, invalidateDayOff, getLocalTodayKey } from "@/lib/dayOff";
 import { readTodayAtt, writeTodayAtt, type TodayAttendanceCache } from "@/lib/attendanceCache";
+import { loadHubCache, saveHubCache } from "@/lib/hubCache";
 
 type Batch = Tables<"batches">;
 type Profile = Tables<"profiles">;
@@ -72,12 +73,23 @@ export default function AdminAttendance() {
       setLoadingBatches(true);
       const { data: { user } } = await supabase.auth.getUser();
       setUserId(user?.id || "");
+      const cachedBatches = user?.id ? loadHubCache<Batch[]>(`admin_attendance_batches_${user.id}`) : null;
+      if (cachedBatches && cachedBatches.length > 0) {
+        setBatches(cachedBatches);
+        setSelectedBatchId((prev) => prev || cachedBatches[0].id);
+        setLoadingBatches(false);
+      }
       const { data: code } = await supabase.rpc("get_my_institute_code");
       setInstituteCode(code || "");
+      if (typeof navigator !== "undefined" && !navigator.onLine) {
+        setLoadingBatches(false);
+        return;
+      }
       const { data, error } = await supabase.from("batches").select("*").eq("institute_code", code || "").eq("is_active", true).order("name");
       if (!error && data) {
         setBatches(data);
-        if (data.length > 0) setSelectedBatchId(data[0].id);
+        if (user?.id) saveHubCache(`admin_attendance_batches_${user.id}`, data);
+        if (data.length > 0) setSelectedBatchId((prev) => prev || data[0].id);
       }
       setLoadingBatches(false);
     };

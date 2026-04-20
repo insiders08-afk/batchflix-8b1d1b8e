@@ -35,6 +35,7 @@ import { sendPushNotification, getBatchStudentIds } from "@/lib/pushNotification
 import { formatChatDate, getMessagePreview } from "@/lib/chatUtils";
 import { saveCachedMessages, loadCachedMessages } from "@/lib/chatCache";
 import { enqueueTask } from "@/lib/offlineQueue";
+import { loadHubCache, saveHubCache } from "@/lib/hubCache";
 
 const BATCH_MSG_PAGE_SIZE = 50;
 const MAX_FILE_SIZE_MB = 10;
@@ -103,6 +104,8 @@ export default function BatchChat() {
   const navigate = useNavigate();
   const { toast } = useToast();
   const { authUser } = useAuth();
+  const batchMetaCacheKey = `batch_meta_${batchId}`;
+  const cachedBatchMeta = loadHubCache<{ batch: BatchInfo | null; studentCount: number }>(batchMetaCacheKey);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -110,12 +113,12 @@ export default function BatchChat() {
   const mountedRef = useRef(true);
   const chatChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 
-  const [batch, setBatch] = useState<BatchInfo | null>(null);
+  const [batch, setBatch] = useState<BatchInfo | null>(cachedBatchMeta?.batch ?? null);
   const currentUserId = authUser?.userId ?? "";
   const currentUserName = authUser?.userName ?? "";
   const currentUserRole = authUser?.userRole ?? "student";
-  const [studentCount, setStudentCount] = useState(0);
-  const [criticalLoading, setCriticalLoading] = useState(true);
+  const [studentCount, setStudentCount] = useState(cachedBatchMeta?.studentCount ?? 0);
+  const [criticalLoading, setCriticalLoading] = useState(!cachedBatchMeta);
   const [chatChannelStatus, setChatChannelStatus] = useState<string>("CONNECTING");
 
   // Chat
@@ -184,6 +187,10 @@ export default function BatchChat() {
   useEffect(() => {
     if (!batchId || !currentUserId) return;
     const init = async () => {
+      if (typeof navigator !== "undefined" && !navigator.onLine) {
+        setCriticalLoading(false);
+        return;
+      }
       try {
         const [batchRes, countRes, msgsRes] = await Promise.all([
           supabase.from("batches").select("*").eq("id", batchId).single(),
@@ -193,6 +200,12 @@ export default function BatchChat() {
 
         if (batchRes.data) setBatch(batchRes.data);
         setStudentCount(countRes.count || 0);
+        if (batchRes.data) {
+          saveHubCache(batchMetaCacheKey, {
+            batch: batchRes.data,
+            studentCount: countRes.count || 0,
+          });
+        }
         if (msgsRes.data) {
           const mapped = msgsRes.data
             .reverse()
