@@ -15,28 +15,11 @@ import AttendanceAnalyticsModal from "@/components/attendance/AttendanceAnalytic
 import AttendanceCalendarView from "@/components/attendance/AttendanceCalendarView";
 import LastMarkedBanner from "@/components/attendance/LastMarkedBanner";
 
-import { isAttendanceEditable, formatTimingDisplay } from "@/lib/batchTiming";
+import { isAttendanceEditable, formatTimingDisplay, isLegacyUnstructuredSchedule } from "@/lib/batchTiming";
 import { enqueueTask } from "@/lib/offlineQueue";
 import { useDirtyGuard } from "@/hooks/useDirtyGuard";
-
-// ── Offline cache: per-batch today snapshot + recent history. Stored under
-// a per-batch key so switching batches still hydrates instantly from cache.
-const ATT_CACHE_PREFIX = "bh_attendance_today_admin_";
-type CachedAtt = {
-  date: string;
-  students: Tables<"profiles">[];
-  attendance: Record<string, "present" | "absent">;
-  history: AttendanceHistoryItem[];
-  cachedAt: number;
-};
-function readAttCache(batchId: string, today: string): CachedAtt | null {
-  try {
-    const raw = localStorage.getItem(ATT_CACHE_PREFIX + batchId);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as CachedAtt;
-    return parsed.date === today ? parsed : null;
-  } catch { return null; }
-}
+import { isDayOff, loadDayOffDatesForBatch, invalidateDayOff, getLocalTodayKey } from "@/lib/dayOff";
+import { readTodayAtt, writeTodayAtt, type TodayAttendanceCache } from "@/lib/attendanceCache";
 
 type Batch = Tables<"batches">;
 type Profile = Tables<"profiles">;
@@ -68,6 +51,7 @@ export default function AdminAttendance() {
   const [loadingStudents, setLoadingStudents] = useState(false);
   const [saving, setSaving] = useState(false);
   const [instituteCode, setInstituteCode] = useState("");
+  const [userId, setUserId] = useState<string>("");
 
   const [analyticsStudent, setAnalyticsStudent] = useState<StudentStats | null>(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
@@ -78,12 +62,16 @@ export default function AdminAttendance() {
   const [hasEverSaved, setHasEverSaved] = useState(false);
   const [lastMarkerKey, setLastMarkerKey] = useState(0); // bump after save → refetch banner
 
-  const today = new Date().toISOString().split("T")[0];
+  // B1 fix: use local timezone, not UTC, so "today" doesn't roll to tomorrow
+  // for users east of UTC after midnight UTC (~5:30 AM IST).
+  const today = getLocalTodayKey();
   const todayDisplay = new Date().toLocaleDateString("en-IN", { day: "numeric", month: "long" });
 
   useEffect(() => {
     const fetchBatches = async () => {
       setLoadingBatches(true);
+      const { data: { user } } = await supabase.auth.getUser();
+      setUserId(user?.id || "");
       const { data: code } = await supabase.rpc("get_my_institute_code");
       setInstituteCode(code || "");
       const { data, error } = await supabase.from("batches").select("*").eq("institute_code", code || "").eq("is_active", true).order("name");
@@ -101,11 +89,13 @@ export default function AdminAttendance() {
 
     // 1. Hydrate immediately from today's cache so offline / cold-start
     //    paints the real grid before any query resolves.
-    const cached = readAttCache(batchId, today);
+    //    B5 fix: cache is now namespaced by userId so a logout (or another
+    //    admin logging in on a shared tablet) cannot leak grids.
+    const cached = userId ? readTodayAtt<Profile>("admin", userId, batchId, today) : null;
     if (cached) {
       setStudents(cached.students);
       setAttendance(cached.attendance);
-      setHistory(cached.history);
+      setHistory(cached.history as AttendanceHistoryItem[]);
       setSavedBaseline(cached.attendance);
       setHasEverSaved(Object.keys(cached.attendance).length > 0);
       setLoadingStudents(false);
@@ -164,60 +154,38 @@ export default function AdminAttendance() {
       setHistory(histItems);
 
       // 3. Persist freshest snapshot for next cold start.
-      try {
-        localStorage.setItem(ATT_CACHE_PREFIX + batchId, JSON.stringify({
+      if (userId) {
+        writeTodayAtt<Profile>("admin", userId, batchId, {
           date: today,
           students: profiles,
           attendance: attMap,
           history: histItems,
           cachedAt: Date.now(),
-        } satisfies CachedAtt));
-      } catch { /* quota */ }
+        });
+      }
     } catch (err: unknown) {
       toast({ title: "Error", description: err instanceof Error ? err.message : "Failed to load", variant: "destructive" });
     } finally {
       setLoadingStudents(false);
     }
-  }, [today, toast]);
+  }, [today, toast, userId]);
 
   useEffect(() => { if (selectedBatchId) loadBatchData(selectedBatchId); }, [selectedBatchId, loadBatchData]);
 
   const selectedBatch = batches.find(b => b.id === selectedBatchId);
   const { editable: attEditable, reason: attLockReason, openTime, lockTime } = isAttendanceEditable(selectedBatch?.schedule ?? null);
+  // B2: surface a yellow warning when the schedule is non-empty but unparseable
+  // (legacy free-text). In that case the time-lock is silently disabled.
+  const isLegacySchedule = isLegacyUnstructuredSchedule(selectedBatch?.schedule ?? null);
 
-  // Check if today is marked as a day-off for this batch using machine-readable tag
+  // A3 fix: use the centralised dayOff helper instead of duplicating regex parsing
+  // here. The helper is already used by the calendar/analytics modal, so day-off
+  // detection is now consistent across the entire app.
   const [todayIsDayOff, setTodayIsDayOff] = useState(false);
   useEffect(() => {
-    if (!selectedBatchId) return;
+    if (!selectedBatchId) { setTodayIsDayOff(false); return; }
     setTodayIsDayOff(false);
-    supabase
-      .from("announcements")
-      .select("content, title")
-      .eq("batch_id", selectedBatchId)
-      .eq("type", "day_off")
-      .then(({ data }) => {
-        if (!data) return;
-        const todayKey = today; // YYYY-MM-DD
-        const found = data.some(ann => {
-          // Primary: machine-readable tag
-          const tagMatch = (ann.content || "").match(/day_off_date:(\d{4}-\d{2}-\d{2})/);
-          if (tagMatch) return tagMatch[1] === todayKey;
-          // Fallback: parse from title
-          const titleMatch = ann.title.match(/(\d{1,2})\s+(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{4})/i);
-          if (titleMatch) {
-            const day = parseInt(titleMatch[1]);
-            const months = ["january","february","march","april","may","june","july","august","september","october","november","december"];
-            const monthIdx = months.indexOf(titleMatch[2].toLowerCase());
-            const year = parseInt(titleMatch[3]);
-            if (monthIdx !== -1) {
-              const key = `${year}-${String(monthIdx + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-              return key === todayKey;
-            }
-          }
-          return false;
-        });
-        setTodayIsDayOff(found);
-      });
+    isDayOff(selectedBatchId, today).then(setTodayIsDayOff);
   }, [selectedBatchId, today]);
 
   const isLocked = !attEditable || todayIsDayOff;
