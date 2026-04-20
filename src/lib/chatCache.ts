@@ -1,21 +1,22 @@
 const PREFIX = "bh_msgs_";
 const MAX = 50;
 
-/** Defer setItem so it never blocks the message-render frame. */
-function deferredSet(key: string, value: string) {
-  const write = () => {
-    try { localStorage.setItem(key, value); } catch { /* quota */ }
-  };
-  if (typeof requestIdleCallback !== "undefined") {
-    requestIdleCallback(write, { timeout: 1000 });
-  } else {
-    setTimeout(write, 0);
-  }
+/**
+ * Persist immediately.
+ *
+ * The earlier idle/deferred write path could be skipped if the user opened a
+ * thread and quickly backgrounded/closed the app before the idle callback ran,
+ * which made offline re-opens show blank histories even though the UI shell was
+ * cached. These payloads are intentionally small (latest 50 messages only), so
+ * a direct write is the safer trade-off.
+ */
+function persistNow(key: string, value: string) {
+  try { localStorage.setItem(key, value); } catch { /* quota */ }
 }
 
 export function saveCachedMessages(key: string, messages: unknown[]) {
   try {
-    deferredSet(PREFIX + key, JSON.stringify(messages.slice(-MAX)));
+    persistNow(PREFIX + key, JSON.stringify(messages.slice(-MAX)));
   } catch { /* serialize failure — ignore */ }
 }
 

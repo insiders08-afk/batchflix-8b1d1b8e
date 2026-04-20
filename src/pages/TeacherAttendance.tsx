@@ -235,12 +235,24 @@ export default function TeacherAttendance() {
             records,
           },
         });
-        // Persist current grid to local cache so reload still shows it
-        try {
-          localStorage.setItem(ATT_CACHE_PREFIX + selectedBatchId, JSON.stringify({
-            date: today, students, attendance, batchHistory, cachedAt: Date.now(),
-          }));
-        } catch { /* ignore */ }
+        if (userId) {
+          writeTodayAtt<StudentProfile>("teacher", userId, selectedBatchId, {
+            date: today,
+            students,
+            attendance,
+            history: batchHistory,
+            cachedAt: Date.now(),
+          });
+        }
+        if (userId) {
+          writeTodayAtt<StudentProfile>("teacher", userId, selectedBatchId, {
+            date: today,
+            students,
+            attendance,
+            history: batchHistory,
+            cachedAt: Date.now(),
+          });
+        }
         setSavedBaseline(attendance);
         setHasEverSaved(true);
         setLastMarkerKey(k => k + 1);
