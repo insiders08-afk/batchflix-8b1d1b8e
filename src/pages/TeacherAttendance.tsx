@@ -18,26 +18,11 @@ import AttendanceAnalyticsModal from "@/components/attendance/AttendanceAnalytic
 import AttendanceCalendarView from "@/components/attendance/AttendanceCalendarView";
 import LastMarkedBanner from "@/components/attendance/LastMarkedBanner";
 
-import { isAttendanceEditable, formatTimingDisplay } from "@/lib/batchTiming";
+import { isAttendanceEditable, formatTimingDisplay, isLegacyUnstructuredSchedule } from "@/lib/batchTiming";
 import { enqueueTask } from "@/lib/offlineQueue";
 import { useDirtyGuard } from "@/hooks/useDirtyGuard";
-
-const ATT_CACHE_PREFIX = "bh_attendance_today_";
-type CachedAtt = {
-  date: string;
-  students: StudentProfile[];
-  attendance: Record<string, "present" | "absent">;
-  batchHistory: AttendanceHistoryItem[];
-  cachedAt: number;
-};
-function readAttCache(batchId: string, today: string): CachedAtt | null {
-  try {
-    const raw = localStorage.getItem(ATT_CACHE_PREFIX + batchId);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as CachedAtt;
-    return parsed.date === today ? parsed : null;
-  } catch { return null; }
-}
+import { isDayOff, invalidateDayOff, getLocalTodayKey } from "@/lib/dayOff";
+import { readTodayAtt, writeTodayAtt } from "@/lib/attendanceCache";
 
 interface Batch {
   id: string;
@@ -96,7 +81,8 @@ export default function TeacherAttendance() {
   // Day-off state
   const [todayIsDayOff, setTodayIsDayOff] = useState(false);
 
-  const today = new Date().toISOString().split("T")[0];
+  // B1 fix: use local timezone, not UTC
+  const today = getLocalTodayKey();
   const todayDisplay = new Date().toLocaleDateString("en-IN", { day: "numeric", month: "long" });
 
   useEffect(() => {

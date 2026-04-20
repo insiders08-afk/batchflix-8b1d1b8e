@@ -383,6 +383,14 @@ export default function AdminAttendance() {
           </div>
         </div>
 
+        {/* B2: legacy free-text schedule warning — time-lock is silently disabled */}
+        {isLegacySchedule && (
+          <div className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs bg-warning/10 border border-warning/30 text-warning">
+            <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
+            <span>This batch uses an old free-text schedule. Time-lock is disabled — edit the batch in <strong>Batches</strong> to set a structured schedule.</span>
+          </div>
+        )}
+
         {/* Single consolidated info banner: schedule + status chip (red lock / green open + last-marker) */}
         {selectedBatch?.schedule && (() => {
           const t = (() => { try { const p = JSON.parse(selectedBatch.schedule!); return p.days?.length ? p : null; } catch { return null; } })();
