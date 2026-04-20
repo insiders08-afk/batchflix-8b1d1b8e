@@ -104,48 +104,22 @@ export default function TeacherAttendance() {
     init();
   }, [navigate]);
 
-  // Check if today is a day-off for the selected batch
+  // A3: centralised dayOff helper instead of duplicating regex parsing
   useEffect(() => {
-    if (!selectedBatchId) return;
+    if (!selectedBatchId) { setTodayIsDayOff(false); return; }
     setTodayIsDayOff(false);
-    supabase
-      .from("announcements")
-      .select("content, title")
-      .eq("batch_id", selectedBatchId)
-      .eq("type", "day_off")
-      .then(({ data }) => {
-        if (!data) return;
-        const todayKey = today;
-        const found = data.some(ann => {
-          // Primary: machine-readable tag
-          const tagMatch = (ann.content || "").match(/day_off_date:(\d{4}-\d{2}-\d{2})/);
-          if (tagMatch) return tagMatch[1] === todayKey;
-          // Fallback: parse from title
-          const titleMatch = ann.title.match(/(\d{1,2})\s+(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{4})/i);
-          if (titleMatch) {
-            const day = parseInt(titleMatch[1]);
-            const months = ["january","february","march","april","may","june","july","august","september","october","november","december"];
-            const monthIdx = months.indexOf(titleMatch[2].toLowerCase());
-            const year = parseInt(titleMatch[3]);
-            if (monthIdx !== -1) {
-              const key = `${year}-${String(monthIdx + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-              return key === todayKey;
-            }
-          }
-          return false;
-        });
-        setTodayIsDayOff(found);
-      });
+    isDayOff(selectedBatchId, today).then(setTodayIsDayOff);
   }, [selectedBatchId, today]);
 
   const loadBatchData = useCallback(async (batchId: string) => {
     if (!batchId) return;
-    // Hydrate immediately from today's cache so offline shows real grid
-    const cachedAtt = readAttCache(batchId, today);
+    // B5: userId-scoped cache so a shared tablet (admin + teacher logging in)
+    // never leaks one user's grid to the other.
+    const cachedAtt = userId ? readTodayAtt<StudentProfile>("teacher", userId, batchId, today) : null;
     if (cachedAtt) {
       setStudents(cachedAtt.students);
       setAttendance(cachedAtt.attendance);
-      setBatchHistory(cachedAtt.batchHistory);
+      setBatchHistory(cachedAtt.history as AttendanceHistoryItem[]);
       setSavedBaseline(cachedAtt.attendance);
       setHasEverSaved(Object.keys(cachedAtt.attendance).length > 0);
       setLoadingStudents(false);
@@ -200,19 +174,19 @@ export default function TeacherAttendance() {
 
       setBatchHistory(histItems);
 
-      try {
-        localStorage.setItem(ATT_CACHE_PREFIX + batchId, JSON.stringify({
+      if (userId) {
+        writeTodayAtt<StudentProfile>("teacher", userId, batchId, {
           date: today,
           students: profiles,
           attendance: attMap,
-          batchHistory: histItems,
+          history: histItems,
           cachedAt: Date.now(),
-        } satisfies CachedAtt));
-      } catch { /* ignore */ }
+        });
+      }
     } finally {
       setLoadingStudents(false);
     }
-  }, [today]);
+  }, [today, userId]);
 
   useEffect(() => { if (selectedBatchId) loadBatchData(selectedBatchId); }, [selectedBatchId, loadBatchData]);
 
