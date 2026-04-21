@@ -8,6 +8,7 @@ import {
   Loader2, TrendingUp, CalendarDays
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { getCycleDueDate } from "@/lib/feeCycle";
 
 interface FeePlan {
   id: string;
@@ -43,10 +44,9 @@ function getCurrentDueDate(plan: FeePlan): Date | null {
   if (!plan.cycle_day || !plan.start_month) {
     return plan.due_date ? new Date(plan.due_date) : null;
   }
-  const months = FREQ_MONTHS[plan.payment_frequency || "monthly"] ?? 1;
-  const [sy, sm] = plan.start_month.split("-").map(Number);
+  // BUG-11/12: safe cycle date with month-overflow clamping
   const cycleIndex = plan.paid_cycles_count ?? 0;
-  return new Date(sy, sm - 1 + cycleIndex * months, plan.cycle_day);
+  return getCycleDueDate(plan.start_month, plan.cycle_day, plan.payment_frequency, cycleIndex);
 }
 
 /**
@@ -110,10 +110,20 @@ export default function StudentFees() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { setLoading(false); return; }
 
-      const [feesRes, batchesRes] = await Promise.all([
-        supabase.from("fees").select("*").eq("student_id", user.id).order("created_at", { ascending: false }),
-        supabase.from("batches").select("id, name"),
-      ]);
+      // BUG-10: scope batch query to only batches the student is enrolled in
+      // (was fetching ALL institute batches before — wasteful & leaks names).
+      const feesRes = await supabase
+        .from("fees")
+        .select("*")
+        .eq("student_id", user.id)
+        .order("created_at", { ascending: false });
+
+      const batchIds = Array.from(
+        new Set((feesRes.data || []).map((f) => f.batch_id).filter(Boolean) as string[]),
+      );
+      const batchesRes = batchIds.length
+        ? await supabase.from("batches").select("id, name").in("id", batchIds)
+        : { data: [] as { id: string; name: string }[] };
 
       const batchMap = new Map((batchesRes.data || []).map(b => [b.id, b.name]));
       const enriched = (feesRes.data || []).map((f: FeePlan) => ({
@@ -129,6 +139,8 @@ export default function StudentFees() {
   }, []);
 
   const totalPaidAmount = useMemo(() => plans.reduce((s, p) => s + Number(p.total_paid_amount), 0), [plans]);
+  // BUG-15: "Current Due" should ONLY include actually-due cycles (pending + overdue),
+  // not future "upcoming" plans that aren't owed yet.
   const totalDue = useMemo(() => plans.filter(p => {
     const s = getFeeStatus(p);
     return s === "pending" || s === "overdue";
