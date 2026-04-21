@@ -7,6 +7,7 @@ import {
   IndianRupee, CheckCircle2, XCircle, Clock, AlertTriangle, Loader2, TrendingUp, CalendarDays
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { getCycleDueDate } from "@/lib/feeCycle";
 
 interface FeePlan {
   id: string;
@@ -42,16 +43,11 @@ function getCurrentDueDate(plan: FeePlan): Date | null {
   if (!plan.cycle_day || !plan.start_month) {
     return plan.due_date ? new Date(plan.due_date) : null;
   }
-  const months = FREQ_MONTHS[plan.payment_frequency || "monthly"] ?? 1;
-  const [sy, sm] = plan.start_month.split("-").map(Number);
-  const today = new Date(); today.setHours(0,0,0,0);
-  let cycleDate = new Date(sy, sm - 1, plan.cycle_day);
-  while (cycleDate < today) {
-    const next = new Date(cycleDate);
-    next.setMonth(next.getMonth() + months);
-    if (next <= today) cycleDate = next; else break;
-  }
-  return cycleDate;
+  // BUG-11/12: safe cycle date with month-overflow clamping.
+  // Also fixed: previously walked forward from start_month with setMonth(),
+  // which silently corrupted dates for months <31 days when cycle_day was 29-31.
+  const cycleIndex = plan.paid_cycles_count ?? 0;
+  return getCycleDueDate(plan.start_month, plan.cycle_day, plan.payment_frequency, cycleIndex);
 }
 
 function getFeeStatus(plan: FeePlan): "paid" | "pending" | "overdue" {
@@ -91,11 +87,19 @@ export default function ParentFees() {
       const { data: childId } = await supabase.rpc("get_my_child_user_id");
       if (!childId) { setLoading(false); return; }
 
-      const [profileRes, feesRes, batchesRes] = await Promise.all([
+      // BUG-10: scope batch query to only the batches actually referenced by the
+      // child's fee plans (was fetching ALL institute batches before).
+      const [profileRes, feesRes] = await Promise.all([
         supabase.from("profiles").select("full_name").eq("user_id", childId).maybeSingle(),
         supabase.from("fees").select("*").eq("student_id", childId).order("created_at", { ascending: false }),
-        supabase.from("batches").select("id, name"),
       ]);
+
+      const batchIds = Array.from(
+        new Set((feesRes.data || []).map((f) => f.batch_id).filter(Boolean) as string[]),
+      );
+      const batchesRes = batchIds.length
+        ? await supabase.from("batches").select("id, name").in("id", batchIds)
+        : { data: [] as { id: string; name: string }[] };
 
       setChildName(profileRes.data?.full_name || "");
       const batchMap = new Map((batchesRes.data || []).map(b => [b.id, b.name]));
@@ -112,7 +116,12 @@ export default function ParentFees() {
   }, []);
 
   const totalPaidAmount = useMemo(() => plans.reduce((s, p) => s + Number(p.total_paid_amount), 0), [plans]);
-  const totalDue = useMemo(() => plans.filter(p => !p.paid).reduce((s, p) => s + Number(p.amount), 0), [plans]);
+  // BUG-15: "Current Due" should ONLY include actually-due cycles (pending + overdue),
+  // not future plans that aren't owed yet.
+  const totalDue = useMemo(() => plans.filter(p => {
+    const s = getFeeStatus(p);
+    return s === "pending" || s === "overdue";
+  }).reduce((s, p) => s + Number(p.amount), 0), [plans]);
   const overdueCount = useMemo(() => plans.filter(p => getFeeStatus(p) === "overdue").length, [plans]);
 
   return (

@@ -33,6 +33,7 @@ import {
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { getCycleDueDate, safeDate } from "@/lib/feeCycle";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -121,15 +122,17 @@ function buildCycles(plan: FeePlan, count = 12): CycleEntry[] {
   if (!plan.cycle_day || !plan.start_month) return [];
   const freq = FREQUENCY_OPTIONS.find((o) => o.value === (plan.payment_frequency || "monthly"));
   const freqMonths = freq?.months ?? 1;
-  const [sy, sm] = plan.start_month.split("-").map(Number);
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
   const cycles: CycleEntry[] = [];
   for (let i = 0; i < count; i++) {
-    const dueDate = new Date(sy, sm - 1 + i * freqMonths, plan.cycle_day);
-    const endDate = new Date(sy, sm - 1 + (i + 1) * freqMonths, plan.cycle_day - 1);
-    const startDate = i === 0 ? dueDate : new Date(sy, sm - 1 + i * freqMonths, plan.cycle_day);
+    // BUG-11/12: use safe cycle date computation that clamps day to month length
+    const dueDate = getCycleDueDate(plan.start_month, plan.cycle_day, plan.payment_frequency, i);
+    const nextDue = getCycleDueDate(plan.start_month, plan.cycle_day, plan.payment_frequency, i + 1);
+    const endDate = new Date(nextDue);
+    endDate.setDate(endDate.getDate() - 1);
+    const startDate = dueDate;
 
     const cycleNumber = i + 1; // 1-based
     const isPaidCycle = cycleNumber <= (plan.paid_cycles_count ?? 0);
@@ -156,16 +159,14 @@ function buildCycles(plan: FeePlan, count = 12): CycleEntry[] {
 /**
  * Get current active cycle due date.
  * Current cycle = cycle at index paid_cycles_count (0-indexed).
+ * BUG-11/12: uses safeDate clamping internally.
  */
 function getCurrentDueDate(plan: FeePlan): Date | null {
   if (!plan.cycle_day || !plan.start_month) {
     return plan.due_date ? new Date(plan.due_date) : null;
   }
-  const freq = FREQUENCY_OPTIONS.find((o) => o.value === (plan.payment_frequency || "monthly"));
-  const freqMonths = freq?.months ?? 1;
-  const [sy, sm] = plan.start_month.split("-").map(Number);
   const cycleIndex = plan.paid_cycles_count ?? 0;
-  return new Date(sy, sm - 1 + cycleIndex * freqMonths, plan.cycle_day);
+  return getCycleDueDate(plan.start_month, plan.cycle_day, plan.payment_frequency, cycleIndex);
 }
 
 /**
@@ -173,21 +174,40 @@ function getCurrentDueDate(plan: FeePlan): Date | null {
  * upcoming  = due date is in the future (before cycle day)
  * pending   = on/within 7 days after due date
  * overdue   = more than 7 days after due date
- * paid      = plan.paid === true (current cycle marked paid)
+ * paid      = current cycle is in the paid window (paid=true AND today<next-due)
+ *
+ * IMP-06: We no longer trust plan.paid blindly. Once the NEXT cycle's due date
+ * arrives, we ignore the stale paid flag and re-evaluate based on cycle_day +
+ * paid_cycles_count. This prevents the next cycle from being masked as "Paid".
  */
 function getFeeStatus(plan: FeePlan): "paid" | "pending" | "overdue" | "upcoming" {
-  if (plan.paid) return "paid";
-
   const dueDate = getCurrentDueDate(plan);
-  if (!dueDate) return "pending";
 
+  // Legacy plan with no cycle setup → trust plan.paid
+  if (!plan.cycle_day || !plan.start_month) {
+    if (plan.paid) return "paid";
+    if (!dueDate) return "pending";
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    if (today < dueDate) return "upcoming";
+    const cutoff = new Date(dueDate);
+    cutoff.setDate(cutoff.getDate() + 7);
+    return today <= cutoff ? "pending" : "overdue";
+  }
+
+  if (!dueDate) return "pending";
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
-  // Before the due date → Upcoming
-  if (today < dueDate) return "upcoming";
+  // Before the due date of the CURRENT cycle (cycle index = paid_cycles_count) → Upcoming or Paid
+  if (today < dueDate) {
+    // Current cycle window hasn't started yet. If the previous cycle was the
+    // last one paid AND we're still inside its grace window, show Paid; otherwise Upcoming.
+    return plan.paid ? "paid" : "upcoming";
+  }
 
-  // Within 7 days of due date → Pending
+  // Current cycle window has started. paid_cycles_count needs to advance for this
+  // cycle to be considered paid — which it isn't here (we're at index = paid_cycles_count).
   const overdueCutoff = new Date(dueDate);
   overdueCutoff.setDate(overdueCutoff.getDate() + 7);
   if (today <= overdueCutoff) return "pending";
@@ -854,9 +874,37 @@ export default function AdminFees() {
       const annual = parseFloat(newFee.annual_amount);
       const amount = calcInstallment(annual, newFee.payment_frequency);
       const startMonth = `${newFee.start_month_year}-${String(parseInt(newFee.start_month_month)).padStart(2, "0")}`;
-      const dueDate = `${startMonth}-${String(cycleDay).padStart(2, "0")}`;
+      // BUG-11/12: clamp first cycle date to last day of month if cycle_day overflows
+      const firstCycle = getCycleDueDate(startMonth, cycleDay, newFee.payment_frequency, 0);
+      const dueDate = firstCycle.toISOString().split("T")[0];
 
-      const rows = Array.from(selectedStudentIds).map((sid) => ({
+      // BUG-06: duplicate plan detection — warn if any selected student already
+      // has a plan for this batch (not strict block; admin can confirm).
+      const studentIds = Array.from(selectedStudentIds);
+      const { data: existingDupes } = await supabase
+        .from("fees")
+        .select("student_id")
+        .eq("institute_code", instituteCode)
+        .eq("batch_id", newFee.batch_id)
+        .in("student_id", studentIds);
+
+      if (existingDupes && existingDupes.length > 0) {
+        const dupeNames = existingDupes
+          .map((d) => students.find((s) => s.user_id === d.student_id)?.full_name)
+          .filter(Boolean)
+          .slice(0, 3)
+          .join(", ");
+        const more = existingDupes.length > 3 ? ` and ${existingDupes.length - 3} more` : "";
+        const proceed = window.confirm(
+          `${existingDupes.length} student${existingDupes.length !== 1 ? "s" : ""} (${dupeNames}${more}) already have a fee plan for this batch.\n\nCreate ANOTHER plan for them anyway? Click Cancel to skip.`,
+        );
+        if (!proceed) {
+          setAddLoading(false);
+          return;
+        }
+      }
+
+      const rows = studentIds.map((sid) => ({
         student_id: sid,
         batch_id: newFee.batch_id,
         amount,
@@ -934,15 +982,21 @@ export default function AdminFees() {
       const newTotalPaid = Number(plan.total_paid_amount ?? 0) + Number(plan.amount) * cyclesToPay;
 
       // Compute next cycle's due date based on the new paid_cycles_count
-      // We temporarily update paid_cycles_count to compute next due
       const tempPlan = { ...plan, paid_cycles_count: newPaidCyclesCount };
       const nextDueDateObj = getCurrentDueDate(tempPlan);
       const nextDue = nextDueDateObj ? nextDueDateObj.toISOString().split("T")[0] : null;
 
+      // IMP-06: Only set paid=true if today is still within the current paid window
+      // (i.e. before the NEXT cycle's due date). Otherwise leave paid=false so the
+      // next cycle naturally surfaces as Pending/Overdue and isn't masked.
+      const todayDate = new Date();
+      todayDate.setHours(0, 0, 0, 0);
+      const stillInPaidWindow = nextDueDateObj ? todayDate < nextDueDateObj : true;
+
       const { error } = await supabase
         .from("fees")
         .update({
-          paid: true, // mark current cycle as paid
+          paid: stillInPaidWindow,
           paid_date: today,
           paid_cycles_count: newPaidCyclesCount,
           total_paid_amount: newTotalPaid,
@@ -968,6 +1022,20 @@ export default function AdminFees() {
   // ─── Send overdue notification ──────────────────────────────────────────────
 
   const handleSendOverdueNotification = async (plan: FeePlan) => {
+    // IMP-03: 1-hour cooldown per fee plan to prevent spam
+    const cooldownKey = `bh_fee_notify_${plan.id}`;
+    const lastSent = localStorage.getItem(cooldownKey);
+    const COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
+    if (lastSent && Date.now() - Number(lastSent) < COOLDOWN_MS) {
+      const minutesLeft = Math.ceil((COOLDOWN_MS - (Date.now() - Number(lastSent))) / 60000);
+      toast({
+        title: "Please wait",
+        description: `You can send another reminder to ${plan.student_name} in ${minutesLeft} min.`,
+        variant: "destructive",
+      });
+      return;
+    }
+
     setNotifyingId(plan.id);
     try {
       const daysOverdue = getDaysOverdue(plan);
@@ -984,6 +1052,8 @@ export default function AdminFees() {
         },
       });
       if (error) throw error;
+      // IMP-03: record cooldown timestamp only on success
+      localStorage.setItem(cooldownKey, String(Date.now()));
       toast({ title: "Notification sent", description: `Overdue reminder sent to ${plan.student_name}` });
     } catch {
       toast({ title: "Sent", description: "Notification dispatched." });
