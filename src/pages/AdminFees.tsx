@@ -33,6 +33,7 @@ import {
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { getCycleDueDate, safeDate } from "@/lib/feeCycle";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -121,15 +122,17 @@ function buildCycles(plan: FeePlan, count = 12): CycleEntry[] {
   if (!plan.cycle_day || !plan.start_month) return [];
   const freq = FREQUENCY_OPTIONS.find((o) => o.value === (plan.payment_frequency || "monthly"));
   const freqMonths = freq?.months ?? 1;
-  const [sy, sm] = plan.start_month.split("-").map(Number);
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
   const cycles: CycleEntry[] = [];
   for (let i = 0; i < count; i++) {
-    const dueDate = new Date(sy, sm - 1 + i * freqMonths, plan.cycle_day);
-    const endDate = new Date(sy, sm - 1 + (i + 1) * freqMonths, plan.cycle_day - 1);
-    const startDate = i === 0 ? dueDate : new Date(sy, sm - 1 + i * freqMonths, plan.cycle_day);
+    // BUG-11/12: use safe cycle date computation that clamps day to month length
+    const dueDate = getCycleDueDate(plan.start_month, plan.cycle_day, plan.payment_frequency, i);
+    const nextDue = getCycleDueDate(plan.start_month, plan.cycle_day, plan.payment_frequency, i + 1);
+    const endDate = new Date(nextDue);
+    endDate.setDate(endDate.getDate() - 1);
+    const startDate = dueDate;
 
     const cycleNumber = i + 1; // 1-based
     const isPaidCycle = cycleNumber <= (plan.paid_cycles_count ?? 0);
@@ -156,16 +159,14 @@ function buildCycles(plan: FeePlan, count = 12): CycleEntry[] {
 /**
  * Get current active cycle due date.
  * Current cycle = cycle at index paid_cycles_count (0-indexed).
+ * BUG-11/12: uses safeDate clamping internally.
  */
 function getCurrentDueDate(plan: FeePlan): Date | null {
   if (!plan.cycle_day || !plan.start_month) {
     return plan.due_date ? new Date(plan.due_date) : null;
   }
-  const freq = FREQUENCY_OPTIONS.find((o) => o.value === (plan.payment_frequency || "monthly"));
-  const freqMonths = freq?.months ?? 1;
-  const [sy, sm] = plan.start_month.split("-").map(Number);
   const cycleIndex = plan.paid_cycles_count ?? 0;
-  return new Date(sy, sm - 1 + cycleIndex * freqMonths, plan.cycle_day);
+  return getCycleDueDate(plan.start_month, plan.cycle_day, plan.payment_frequency, cycleIndex);
 }
 
 /**
@@ -173,21 +174,40 @@ function getCurrentDueDate(plan: FeePlan): Date | null {
  * upcoming  = due date is in the future (before cycle day)
  * pending   = on/within 7 days after due date
  * overdue   = more than 7 days after due date
- * paid      = plan.paid === true (current cycle marked paid)
+ * paid      = current cycle is in the paid window (paid=true AND today<next-due)
+ *
+ * IMP-06: We no longer trust plan.paid blindly. Once the NEXT cycle's due date
+ * arrives, we ignore the stale paid flag and re-evaluate based on cycle_day +
+ * paid_cycles_count. This prevents the next cycle from being masked as "Paid".
  */
 function getFeeStatus(plan: FeePlan): "paid" | "pending" | "overdue" | "upcoming" {
-  if (plan.paid) return "paid";
-
   const dueDate = getCurrentDueDate(plan);
-  if (!dueDate) return "pending";
 
+  // Legacy plan with no cycle setup → trust plan.paid
+  if (!plan.cycle_day || !plan.start_month) {
+    if (plan.paid) return "paid";
+    if (!dueDate) return "pending";
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    if (today < dueDate) return "upcoming";
+    const cutoff = new Date(dueDate);
+    cutoff.setDate(cutoff.getDate() + 7);
+    return today <= cutoff ? "pending" : "overdue";
+  }
+
+  if (!dueDate) return "pending";
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
-  // Before the due date → Upcoming
-  if (today < dueDate) return "upcoming";
+  // Before the due date of the CURRENT cycle (cycle index = paid_cycles_count) → Upcoming or Paid
+  if (today < dueDate) {
+    // Current cycle window hasn't started yet. If the previous cycle was the
+    // last one paid AND we're still inside its grace window, show Paid; otherwise Upcoming.
+    return plan.paid ? "paid" : "upcoming";
+  }
 
-  // Within 7 days of due date → Pending
+  // Current cycle window has started. paid_cycles_count needs to advance for this
+  // cycle to be considered paid — which it isn't here (we're at index = paid_cycles_count).
   const overdueCutoff = new Date(dueDate);
   overdueCutoff.setDate(overdueCutoff.getDate() + 7);
   if (today <= overdueCutoff) return "pending";
