@@ -982,15 +982,21 @@ export default function AdminFees() {
       const newTotalPaid = Number(plan.total_paid_amount ?? 0) + Number(plan.amount) * cyclesToPay;
 
       // Compute next cycle's due date based on the new paid_cycles_count
-      // We temporarily update paid_cycles_count to compute next due
       const tempPlan = { ...plan, paid_cycles_count: newPaidCyclesCount };
       const nextDueDateObj = getCurrentDueDate(tempPlan);
       const nextDue = nextDueDateObj ? nextDueDateObj.toISOString().split("T")[0] : null;
 
+      // IMP-06: Only set paid=true if today is still within the current paid window
+      // (i.e. before the NEXT cycle's due date). Otherwise leave paid=false so the
+      // next cycle naturally surfaces as Pending/Overdue and isn't masked.
+      const todayDate = new Date();
+      todayDate.setHours(0, 0, 0, 0);
+      const stillInPaidWindow = nextDueDateObj ? todayDate < nextDueDateObj : true;
+
       const { error } = await supabase
         .from("fees")
         .update({
-          paid: true, // mark current cycle as paid
+          paid: stillInPaidWindow,
           paid_date: today,
           paid_cycles_count: newPaidCyclesCount,
           total_paid_amount: newTotalPaid,
@@ -1016,6 +1022,20 @@ export default function AdminFees() {
   // ─── Send overdue notification ──────────────────────────────────────────────
 
   const handleSendOverdueNotification = async (plan: FeePlan) => {
+    // IMP-03: 1-hour cooldown per fee plan to prevent spam
+    const cooldownKey = `bh_fee_notify_${plan.id}`;
+    const lastSent = localStorage.getItem(cooldownKey);
+    const COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
+    if (lastSent && Date.now() - Number(lastSent) < COOLDOWN_MS) {
+      const minutesLeft = Math.ceil((COOLDOWN_MS - (Date.now() - Number(lastSent))) / 60000);
+      toast({
+        title: "Please wait",
+        description: `You can send another reminder to ${plan.student_name} in ${minutesLeft} min.`,
+        variant: "destructive",
+      });
+      return;
+    }
+
     setNotifyingId(plan.id);
     try {
       const daysOverdue = getDaysOverdue(plan);
