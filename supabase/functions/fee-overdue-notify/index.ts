@@ -213,23 +213,75 @@ Deno.serve(async (req) => {
     let body: Record<string, string> = {};
     try { body = await req.json(); } catch { /* scheduled call, no body */ }
 
-    const today   = new Date();
-    const cutoff  = new Date(today);
-    cutoff.setDate(cutoff.getDate() - 7);
-    const cutoffStr = cutoff.toISOString().split("T")[0];
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
 
-    let feesQuery = admin.from("fees")
-      .select("id, student_id, amount, payment_frequency, due_date, institute_code, description")
-      .eq("paid", false)
-      .lte("due_date", cutoffStr);
+    // BUG-08: also include fees with NULL due_date — for cycle-based plans the
+    // canonical due date lives in (start_month, cycle_day, paid_cycles_count).
+    // Previously we filtered .lte("due_date", cutoffStr) which silently skipped
+    // every plan whose due_date column was never populated.
+    let feesQuery = admin
+      .from("fees")
+      .select(
+        "id, student_id, amount, payment_frequency, due_date, institute_code, description, cycle_day, start_month, paid_cycles_count",
+      )
+      .eq("paid", false);
 
-    if (body.fee_id)     feesQuery = feesQuery.eq("id",         body.fee_id.substring(0, 36));
+    if (body.fee_id) feesQuery = feesQuery.eq("id", body.fee_id.substring(0, 36));
     else if (body.student_id) feesQuery = feesQuery.eq("student_id", body.student_id.substring(0, 36));
 
-    const { data: overdueFees, error: feesErr } = await feesQuery;
+    const { data: allFees, error: feesErr } = await feesQuery;
     if (feesErr) throw feesErr;
 
-    if (!overdueFees || overdueFees.length === 0) {
+    // Helper: safe cycle date with month-overflow clamping (mirrors src/lib/feeCycle.ts)
+    const FREQ_MONTHS: Record<string, number> = {
+      monthly: 1,
+      quarterly: 3,
+      half_yearly: 6,
+      annual: 12,
+    };
+    const computeCycleDueDate = (
+      startMonth: string,
+      cycleDay: number,
+      frequency: string | null,
+      cycleIndex: number,
+    ): Date | null => {
+      const months = FREQ_MONTHS[frequency || "monthly"] ?? 1;
+      const parts = startMonth.split("-").map(Number);
+      if (parts.length < 2 || isNaN(parts[0]) || isNaN(parts[1])) return null;
+      const [sy, sm] = parts;
+      const totalMonths = sm - 1 + cycleIndex * months;
+      const targetYear = sy + Math.floor(totalMonths / 12);
+      const targetMonth = (totalMonths % 12) + 1; // 1-indexed
+      const lastDay = new Date(targetYear, targetMonth, 0).getDate();
+      const safeDay = Math.min(Math.max(1, cycleDay), lastDay);
+      return new Date(targetYear, targetMonth - 1, safeDay);
+    };
+
+    // Resolve effective due date per plan, then keep only those at least 7 days past due.
+    const overdueFees = (allFees || [])
+      .map((f) => {
+        let dueDate: Date | null = null;
+        if (f.cycle_day && f.start_month) {
+          dueDate = computeCycleDueDate(
+            f.start_month,
+            f.cycle_day,
+            f.payment_frequency,
+            f.paid_cycles_count ?? 0,
+          );
+        } else if (f.due_date) {
+          dueDate = new Date(f.due_date);
+        }
+        return { ...f, _dueDate: dueDate };
+      })
+      .filter((f) => {
+        if (!f._dueDate) return false;
+        const overdueCutoff = new Date(f._dueDate);
+        overdueCutoff.setDate(overdueCutoff.getDate() + 7);
+        return today > overdueCutoff;
+      });
+
+    if (overdueFees.length === 0) {
       return new Response(
         JSON.stringify({ notified: 0 }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -239,9 +291,9 @@ Deno.serve(async (req) => {
     let notified = 0;
 
     for (const fee of overdueFees) {
-      const dueDate    = new Date(fee.due_date);
+      const dueDate = fee._dueDate as Date;
       const daysOverdue = Math.ceil((today.getTime() - dueDate.getTime()) / 86400000) - 7;
-      const amountStr  = `₹${Number(fee.amount).toLocaleString("en-IN")}`;
+      const amountStr = `₹${Number(fee.amount).toLocaleString("en-IN")}`;
       const dueDateStr = dueDate.toLocaleDateString("en-IN", { day: "numeric", month: "long" });
 
       const { data: subs } = await admin.from("push_subscriptions")
