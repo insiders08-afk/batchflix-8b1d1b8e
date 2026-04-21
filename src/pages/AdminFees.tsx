@@ -874,9 +874,37 @@ export default function AdminFees() {
       const annual = parseFloat(newFee.annual_amount);
       const amount = calcInstallment(annual, newFee.payment_frequency);
       const startMonth = `${newFee.start_month_year}-${String(parseInt(newFee.start_month_month)).padStart(2, "0")}`;
-      const dueDate = `${startMonth}-${String(cycleDay).padStart(2, "0")}`;
+      // BUG-11/12: clamp first cycle date to last day of month if cycle_day overflows
+      const firstCycle = getCycleDueDate(startMonth, cycleDay, newFee.payment_frequency, 0);
+      const dueDate = firstCycle.toISOString().split("T")[0];
 
-      const rows = Array.from(selectedStudentIds).map((sid) => ({
+      // BUG-06: duplicate plan detection — warn if any selected student already
+      // has a plan for this batch (not strict block; admin can confirm).
+      const studentIds = Array.from(selectedStudentIds);
+      const { data: existingDupes } = await supabase
+        .from("fees")
+        .select("student_id")
+        .eq("institute_code", instituteCode)
+        .eq("batch_id", newFee.batch_id)
+        .in("student_id", studentIds);
+
+      if (existingDupes && existingDupes.length > 0) {
+        const dupeNames = existingDupes
+          .map((d) => students.find((s) => s.user_id === d.student_id)?.full_name)
+          .filter(Boolean)
+          .slice(0, 3)
+          .join(", ");
+        const more = existingDupes.length > 3 ? ` and ${existingDupes.length - 3} more` : "";
+        const proceed = window.confirm(
+          `${existingDupes.length} student${existingDupes.length !== 1 ? "s" : ""} (${dupeNames}${more}) already have a fee plan for this batch.\n\nCreate ANOTHER plan for them anyway? Click Cancel to skip.`,
+        );
+        if (!proceed) {
+          setAddLoading(false);
+          return;
+        }
+      }
+
+      const rows = studentIds.map((sid) => ({
         student_id: sid,
         batch_id: newFee.batch_id,
         amount,
