@@ -1052,6 +1052,8 @@ export default function AdminFees() {
         },
       });
       if (error) throw error;
+      // IMP-03: record cooldown timestamp only on success
+      localStorage.setItem(cooldownKey, String(Date.now()));
       toast({ title: "Notification sent", description: `Overdue reminder sent to ${plan.student_name}` });
     } catch {
       toast({ title: "Sent", description: "Notification dispatched." });
