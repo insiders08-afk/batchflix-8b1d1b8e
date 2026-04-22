@@ -28,14 +28,16 @@ const ROUTES_BY_ROLE: Record<string, Loader[]> = {
   ],
 };
 
-// Logged-out visitors: only warm the role picker (~8KB).
-// Auth pages are lazy-loaded on click — most visitors never reach them,
-// and the SW precache covers offline session expiry as a safety net.
+// Logged-out visitors landing on `/`: warm RoleSelection so the first tap on
+// "Get Started" shows the picker instantly. Auth pages get warmed *after* the
+// user actually reaches /role-select (see prefetchAuthPages below) so we don't
+// burn bytes for visitors who never click through.
 const LOGGED_OUT_ROUTES: Loader[] = [
   () => import("@/pages/RoleSelection"),
 ];
 
 let prefetched = false;
+let authPrefetched = false;
 
 function getCachedRole(): string | null {
   try {
@@ -48,18 +50,36 @@ function getCachedRole(): string | null {
   }
 }
 
+function runIdle(cb: () => void) {
+  const idle = (typeof requestIdleCallback !== "undefined")
+    ? requestIdleCallback
+    : (fn: () => void) => setTimeout(fn, 200);
+  idle(cb);
+}
+
 export function prefetchCriticalRoutes() {
   if (prefetched) return;
   prefetched = true;
 
-  const idle = (typeof requestIdleCallback !== "undefined")
-    ? requestIdleCallback
-    : (cb: () => void) => setTimeout(cb, 200);
-
   const role = getCachedRole();
   const targets = role && ROUTES_BY_ROLE[role] ? ROUTES_BY_ROLE[role] : LOGGED_OUT_ROUTES;
 
-  idle(() => {
+  runIdle(() => {
     targets.forEach((load) => load().catch(() => {}));
+  });
+}
+
+/**
+ * Called from /role-select: warm the three most-used auth pages so tapping
+ * a role card opens its login screen with zero chunk-fetch latency.
+ */
+export function prefetchAuthPages() {
+  if (authPrefetched) return;
+  authPrefetched = true;
+  runIdle(() => {
+    import("@/pages/auth/AdminAuth").catch(() => {});
+    import("@/pages/auth/TeacherAuth").catch(() => {});
+    import("@/pages/auth/StudentAuth").catch(() => {});
+    import("@/pages/auth/ParentAuth").catch(() => {});
   });
 }
