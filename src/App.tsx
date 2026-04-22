@@ -82,17 +82,19 @@ function RouteTracker() {
   const location = useLocation();
   useEffect(() => {
     const p = location.pathname;
-    // Only remember in-app dashboard/chat routes — not landing/auth/reset.
+    // Only remember dashboard/hub routes — NOT transient chat screens.
+    // Storing /batch/* or /dm/* here causes a back-button loop: tapping Back
+    // from a chat screen lands on `/`, which then immediately redirects the
+    // user back to the same chat URL via Index.tsx's fast-path restore.
     const isAppRoute =
       p.startsWith("/admin") ||
       p.startsWith("/teacher") ||
       p.startsWith("/student") ||
       p.startsWith("/parent") ||
       p.startsWith("/owner") ||
-      p.startsWith("/superadmin") ||
-      p.startsWith("/batch/") ||
-      p.startsWith("/dm/");
-    if (isAppRoute) {
+      p.startsWith("/superadmin");
+    const isTransient = p.startsWith("/batch/") || p.startsWith("/dm/");
+    if (isAppRoute && !isTransient) {
       try { localStorage.setItem("bh_last_route", p); } catch { /* quota */ }
     }
   }, [location.pathname]);
