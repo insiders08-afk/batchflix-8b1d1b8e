@@ -176,11 +176,14 @@ export default function BatchChat() {
   }, [batchId, currentUserId, authUser?.instituteCode, queryClient]);
 
   const handleBack = () => {
-    if (window.history.length > 2) {
-      navigate(-1);
-    } else {
-      navigate("/");
-    }
+    // Always route to the role's chat hub. Relying on window.history.length /
+    // navigate(-1) caused a back-loop because Index.tsx fast-path-restores
+    // bh_last_route, and an unreliable history length could exit the app on
+    // direct deep-link opens. Hub is the canonical parent of /batch/*.
+    const role = currentUserRole === "admin" || currentUserRole === "teacher" || currentUserRole === "student"
+      ? currentUserRole
+      : "student";
+    navigate(`/${role}/chat`, { replace: true });
   };
 
   // Load batch info + initial messages
