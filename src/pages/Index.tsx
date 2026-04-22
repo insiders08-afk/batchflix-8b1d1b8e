@@ -443,117 +443,29 @@ export default function Index() {
       </nav>
 
       {/* ══════════════════ HERO ══════════════════ */}
-      <section className="relative min-h-screen flex items-center justify-center pt-20 overflow-hidden">
-        {/* Floating ambient orbs */}
+      <section className="relative flex items-center justify-center pt-28 pb-16 md:pt-32 md:pb-20 overflow-hidden">
+        {/* Soft ambient orbs — kept subtle, no large blur towers that created
+            the "empty space while assets load" effect on mobile. */}
         <div className="absolute inset-0 pointer-events-none">
           <div
-            className="absolute top-32 left-10 w-80 h-80 rounded-full blur-3xl"
+            className="absolute top-24 -left-20 w-72 h-72 rounded-full blur-3xl opacity-60"
             style={{ background: "radial-gradient(circle, rgba(14,165,233,0.18) 0%, transparent 70%)" }}
           />
           <div
-            className="absolute top-40 right-20 w-96 h-96 rounded-full blur-3xl"
-            style={{ background: "radial-gradient(circle, rgba(230,194,160,0.15) 0%, transparent 70%)" }}
+            className="absolute -top-10 -right-20 w-80 h-80 rounded-full blur-3xl opacity-60"
+            style={{ background: "radial-gradient(circle, rgba(230,194,160,0.18) 0%, transparent 70%)" }}
           />
-          <div
-            className="absolute bottom-20 left-1/3 w-64 h-64 rounded-full blur-3xl"
-            style={{ background: "radial-gradient(circle, rgba(139,111,78,0.1) 0%, transparent 70%)" }}
-          />
-        </div>
-
-        {/* Floating UI decorations */}
-        <div className="absolute inset-0 pointer-events-none hidden md:block">
-          {/* Notebook page */}
-          <div
-            className="absolute top-32 left-10 w-28 h-36 rounded-lg shadow-2xl opacity-60"
-            style={{
-              background: "#EDE8DC",
-              animation: "pageFly 3s ease-in-out infinite alternate",
-              transformStyle: "preserve-3d",
-            }}
-          >
-            <div className="p-3 space-y-2">
-              <div className="h-2 rounded" style={{ background: "#D4C4B0", width: "75%" }} />
-              <div className="h-2 rounded" style={{ background: "#E8DCC4", width: "100%" }} />
-              <div className="h-2 rounded" style={{ background: "#E8DCC4", width: "83%" }} />
-            </div>
-          </div>
-
-          {/* Rupee floating */}
-          <div
-            className="absolute top-44 right-24 text-6xl font-bold"
-            style={{
-              color: "#8B6F4E",
-              animation: "floatEl 8s ease-in-out infinite",
-              filter: "drop-shadow(0 4px 6px rgba(139,111,78,0.2))",
-            }}
-          >
-            ₹
-          </div>
-          <div
-            className="absolute bottom-44 left-24 text-4xl font-bold"
-            style={{
-              color: "#0EA5E9",
-              animation: "floatEl 7s ease-in-out infinite 1s",
-              filter: "drop-shadow(0 4px 6px rgba(14,165,233,0.2))",
-            }}
-          >
-            ₹
-          </div>
-
-          {/* Chat bubbles */}
-          <div
-            className="absolute rounded-2xl rounded-tl-sm px-4 py-2 shadow-lg"
-            style={{
-              bottom: "35%",
-              left: "22%",
-              background: "rgba(237,232,220,0.75)",
-              backdropFilter: "blur(20px)",
-              border: "1px solid rgba(139,111,78,0.1)",
-              animation: "floatEl 6s ease-in-out infinite 2s",
-            }}
-          >
-            <p className="text-xs font-medium" style={{ color: "#3D2B1F" }}>
-              Fee reminder sent to 12 students
-            </p>
-          </div>
-
-          {/* Check circle */}
-          <div
-            className="absolute w-12 h-12 rounded-full flex items-center justify-center shadow-lg"
-            style={{ top: "50%", right: "10%", background: "#0EA5E9", animation: "floatEl 5s ease-in-out infinite" }}
-          >
-            <Check className="w-6 h-6 text-white" strokeWidth={3} />
-          </div>
-
-          {/* Avatar cluster */}
-          <div
-            className="absolute flex -space-x-3"
-            style={{ bottom: "32%", right: "30%", animation: "floatEl 9s ease-in-out infinite" }}
-          >
-            {[
-              { l: "A", bg: "#E6C2A0" },
-              { l: "R", bg: "#D4C4B0" },
-              { l: "S", bg: "#0EA5E9" },
-            ].map((a) => (
-              <div
-                key={a.l}
-                className="w-10 h-10 rounded-full border-2 flex items-center justify-center text-xs font-bold text-white"
-                style={{ background: a.bg, borderColor: "#F5F1E8" }}
-              >
-                {a.l}
-              </div>
-            ))}
-          </div>
         </div>
 
         {/* Main hero content */}
         <div className="relative z-10 max-w-7xl mx-auto px-6 lg:px-8 text-center">
-          {/* Trust badge */}
+          {/* Trust badge — tight spacing keeps it visually close to headline,
+              eliminating the gap users perceived as "loading empty space". */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5 }}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-full mb-8"
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-full mb-5"
             style={{ background: "rgba(139,111,78,0.1)", border: "1px solid rgba(139,111,78,0.2)" }}
           >
             <span className="w-2 h-2 rounded-full animate-pulse" style={{ background: "#0EA5E9" }} />
@@ -590,7 +502,7 @@ export default function Index() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay: 0.2 }}
-            className="text-lg md:text-xl max-w-2xl mx-auto mb-10 leading-relaxed"
+            className="text-lg md:text-xl max-w-2xl mx-auto mb-8 leading-relaxed"
             style={{ color: "rgba(61,43,31,0.7)" }}
           >
             BatchHub replaces paper registers, scattered WhatsApp groups, and manual fee tracking with one clean
@@ -602,7 +514,7 @@ export default function Index() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay: 0.3 }}
-            className="flex flex-col sm:flex-row gap-4 justify-center items-center mb-4"
+            className="flex flex-col sm:flex-row gap-4 justify-center items-center mb-3"
           >
             <Link to="/role-select">
               <button
@@ -623,12 +535,6 @@ export default function Index() {
           >
             No credit card required · Setup in under 5 minutes
           </motion.p>
-
-        </div>
-
-        {/* Scroll indicator */}
-        <div className="absolute bottom-10 left-1/2 -translate-x-1/2" style={{ animation: "bounce 2s infinite" }}>
-          <ChevronDown className="w-6 h-6" style={{ color: "#8B6F4E" }} />
         </div>
       </section>
 

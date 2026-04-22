@@ -1082,6 +1082,14 @@ export type Database = {
         Args: { p_batch_id: string; p_date: string }
         Returns: boolean
       }
+      lookup_institute_for_signup: {
+        Args: { p_institute_code: string; p_role: string }
+        Returns: {
+          enrollment_enabled: boolean
+          exists_flag: boolean
+          institute_status: string
+        }[]
+      }
       mark_batch_read: { Args: { p_batch_id: string }; Returns: undefined }
       mark_dm_read: { Args: { p_conversation_id: string }; Returns: undefined }
       purge_old_attendance_audit: { Args: { p_days?: number }; Returns: number }

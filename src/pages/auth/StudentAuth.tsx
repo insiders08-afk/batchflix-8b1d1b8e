@@ -88,13 +88,16 @@ export default function StudentAuth() {
     try {
       const instituteCode = normalizeInstituteCode(form.instituteId);
 
-      // LIMIT-06: Check institute_code exists before creating account
-      const { data: institute } = await supabase
-        .from("institutes")
-        .select("id, student_enrollment_enabled")
-        .eq("institute_code", instituteCode)
-        .maybeSingle();
-      if (!institute) {
+      // LIMIT-06: Validate institute via SECURITY DEFINER RPC so we can also
+      // see freshly-registered institutes still awaiting super-admin approval
+      // (the public RLS only exposes status='approved' institutes).
+      const { data: lookup, error: lookupErr } = await supabase.rpc(
+        "lookup_institute_for_signup",
+        { p_institute_code: instituteCode, p_role: "student" },
+      );
+      if (lookupErr) throw lookupErr;
+      const institute = Array.isArray(lookup) ? lookup[0] : null;
+      if (!institute?.exists_flag) {
         toast({
           title: "Institute not found",
           description: `No institute with code "${instituteCode}" exists. Check with your admin for the correct code.`,
@@ -104,8 +107,7 @@ export default function StudentAuth() {
         return;
       }
 
-      // Check if student enrollment is enabled
-      if (institute.student_enrollment_enabled === false) {
+      if (institute.enrollment_enabled === false) {
         toast({
           title: "Enrollment Disabled",
           description: "Admin has switched off student enrollment in this batch space.",

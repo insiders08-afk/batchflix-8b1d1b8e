@@ -1,9 +1,11 @@
+import { useEffect } from "react";
 import { motion } from "framer-motion";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, GraduationCap, BookOpen, Users, UserCircle, ArrowRight, Zap } from "lucide-react";
 import InstallButton from "@/components/InstallButton";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { prefetchAuthPages } from "@/lib/prefetchRoutes";
 
 const roles = [
   {
@@ -49,6 +51,10 @@ const roles = [
 ];
 
 export default function RoleSelection() {
+  // Warm Admin/Teacher/Student/Parent auth chunks during idle time so tapping
+  // any role card opens its login screen instantly (no spinner flash).
+  useEffect(() => { prefetchAuthPages(); }, []);
+
   return (
     <div className="min-h-screen bg-background flex flex-col">
       {/* Navbar */}
