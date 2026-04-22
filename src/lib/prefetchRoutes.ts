@@ -28,12 +28,16 @@ const ROUTES_BY_ROLE: Record<string, Loader[]> = {
   ],
 };
 
-// Logged-out visitors landing on `/`: warm RoleSelection so the first tap on
-// "Get Started" shows the picker instantly. Auth pages get warmed *after* the
-// user actually reaches /role-select (see prefetchAuthPages below) so we don't
-// burn bytes for visitors who never click through.
+// Logged-out visitors landing on `/`: warm RoleSelection AND the four auth
+// pages in parallel during idle time. This way, by the time the visitor taps
+// "Get Started" → picks a role → opens its login screen, every chunk is
+// already in the browser cache (zero spinner flashes).
 const LOGGED_OUT_ROUTES: Loader[] = [
   () => import("@/pages/RoleSelection"),
+  () => import("@/pages/auth/AdminAuth"),
+  () => import("@/pages/auth/TeacherAuth"),
+  () => import("@/pages/auth/StudentAuth"),
+  () => import("@/pages/auth/ParentAuth"),
 ];
 
 let prefetched = false;
